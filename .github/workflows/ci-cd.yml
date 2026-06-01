@@ -1,0 +1,48 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r web/requirements.txt -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest -q
+
+  deploy:
+    name: Deploy
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/gabi
+            git pull git@github-gabi:tiagohlatki-db1/gabi.git main
+            source venv/bin/activate
+            pip install -q -r web/requirements.txt
+            sudo systemctl restart gabi
+            sudo systemctl is-active gabi
