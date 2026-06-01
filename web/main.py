@@ -158,7 +158,7 @@ async def me(email: CurrentUser):
     return {"email": email}
 
 
-@app.post("/auth/change-password")
+@app.post("/auth/change-password", responses={400: {"description": "Senha atual incorreta ou nova senha muito curta"}})
 async def change_password(
     current_password: str,
     new_password: str,
@@ -227,7 +227,7 @@ async def admin_upload_task(
     return {"ok": True, "filename": task.filename, "competencia": competencia}
 
 
-@app.delete("/api/admin/task/{task_id}")
+@app.delete("/api/admin/task/{task_id}", responses={404: {"description": "Upload não encontrado"}})
 async def admin_delete_task(task_id: int, _: CurrentUser):
     with _db() as conn:
         row = conn.execute("SELECT path FROM task_uploads WHERE id=?", (task_id,)).fetchone()
@@ -264,7 +264,7 @@ async def task_competencias():
     return {"competencias": [dict(r) for r in rows]}
 
 
-@app.post("/api/validate")
+@app.post("/api/validate", responses={422: {"description": "Task não disponível, arquivo ausente ou erro de processamento"}})
 async def validate(
     ga: Annotated[List[UploadFile], File(description="Um ou mais arquivos GA.xls")],
     competencia: Annotated[Optional[str], Form(description="Competência a validar")] = None,
