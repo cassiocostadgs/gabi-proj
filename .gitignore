@@ -25,6 +25,7 @@ gabi.zip
 .LSOverride
 
 # Sonar
+sonar-project.properties
 .scannerwork/
 coverage.xml
 .sonar/

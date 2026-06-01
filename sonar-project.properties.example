@@ -3,6 +3,7 @@ sonar.projectName=G.A.B.I.
 sonar.projectVersion=2.0.0
 
 sonar.host.url=http://localhost:9000
+sonar.token=SEU_TOKEN_AQUI
 
 # Sources
 sonar.sources=web,extracted
