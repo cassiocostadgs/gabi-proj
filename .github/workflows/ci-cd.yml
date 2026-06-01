@@ -45,4 +45,5 @@ jobs:
             source venv/bin/activate
             pip install -q -r web/requirements.txt
             sudo systemctl restart gabi
-            sudo systemctl is-active gabi
+            sudo systemctl reload nginx
+            sudo systemctl is-active gabi nginx
