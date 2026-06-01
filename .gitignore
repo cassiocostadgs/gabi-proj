@@ -24,5 +24,10 @@ gabi.zip
 .AppleDouble
 .LSOverride
 
+# Sonar
+.scannerwork/
+coverage.xml
+.sonar/
+
 # Claude Code
 .claude/
