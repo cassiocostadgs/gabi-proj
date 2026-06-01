@@ -111,13 +111,13 @@ def ds_to_date(ds: str) -> date:
     return date(int(y), int(m), int(d))
 
 
-def _issue_weekend(ds: str, g: float, t: float, TOL: float) -> dict | None:
-    if not (g > TOL or t > TOL):
+def _issue_weekend(ds: str, g: float, t: float, tol: float) -> dict | None:
+    if not (g > tol or t > tol):
         return None
     parts = []
-    if g > TOL:
+    if g > tol:
         parts.append(f"GA: {g:.2f}h")
-    if t > TOL:
+    if t > tol:
         parts.append(f"Task: {t:.2f}h")
     return {'date': ds, 'rule': 'R4', 'severity': 'warning',
             'message': f'Apontamento em fim de semana — {", ".join(parts)}'}
@@ -140,16 +140,16 @@ def _issue_overtime(ds: str, g: float, mensal_ok: bool) -> dict:
             'message': f'GA ({g:.2f}h) excede 8h diárias ({lbl})'}
 
 
-def _validate_day(ds: str, g: float, t: float, mensal_ok: bool, TOL: float) -> list:
+def _validate_day(ds: str, g: float, t: float, mensal_ok: bool, tol: float) -> list:
     if ds_to_date(ds).weekday() >= 5:
-        issue = _issue_weekend(ds, g, t, TOL)
+        issue = _issue_weekend(ds, g, t, tol)
         return [issue] if issue else []
-    if g <= TOL and t <= TOL:
+    if g <= tol and t <= tol:
         return [_issue_no_entry(ds)]
     issues = []
-    if abs(g - t) > TOL:
+    if abs(g - t) > tol:
         issues.append(_issue_divergence(ds, g, t))
-    if g > 8.0 + TOL:
+    if g > 8.0 + tol:
         issues.append(_issue_overtime(ds, g, mensal_ok))
     return issues
 
