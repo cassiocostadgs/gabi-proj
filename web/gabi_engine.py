@@ -23,14 +23,17 @@ def parse_task(fp: str) -> dict:
     return dict(result)
 
 
-def parse_ga(fp: str) -> tuple:
-    from python_calamine import CalamineWorkbook
-    rows = CalamineWorkbook.from_path(fp).get_sheet_by_index(0).to_python(skip_empty_area=False)
+def _parse_ga_header(rows: list) -> tuple:
     hdr = rows[0][5] if rows and len(rows[0]) > 5 else ''
     parts = str(hdr).split('\n')
-    name = parts[1].strip() if len(parts) > 1 else hdr.strip()
+    name = parts[1].strip() if len(parts) > 1 else str(hdr).strip()
     comp = ''.join(filter(str.isdigit, parts[0])) if parts else ''
-    year, month = int(comp[:4]), int(comp[4:6]) if len(comp) >= 6 else (0, 0)
+    year = int(comp[:4]) if len(comp) >= 4 else 0
+    month = int(comp[4:6]) if len(comp) >= 6 else 0
+    return name, year, month
+
+
+def _parse_ga_daily(rows: list) -> dict:
     cur = None
     daily = {}
     for row in rows:
@@ -41,6 +44,14 @@ def parse_ga(fp: str) -> tuple:
             cur = b
         if i == 'Total Data' and cur and b != 'Total' and q:
             daily[cur] = float(q)
+    return daily
+
+
+def parse_ga(fp: str) -> tuple:
+    from python_calamine import CalamineWorkbook
+    rows = CalamineWorkbook.from_path(fp).get_sheet_by_index(0).to_python(skip_empty_area=False)
+    name, year, month = _parse_ga_header(rows)
+    daily = _parse_ga_daily(rows)
     return name, daily, year, month
 
 
@@ -100,6 +111,49 @@ def ds_to_date(ds: str) -> date:
     return date(int(y), int(m), int(d))
 
 
+def _issue_weekend(ds: str, g: float, t: float, TOL: float) -> dict | None:
+    if not (g > TOL or t > TOL):
+        return None
+    parts = []
+    if g > TOL:
+        parts.append(f"GA: {g:.2f}h")
+    if t > TOL:
+        parts.append(f"Task: {t:.2f}h")
+    return {'date': ds, 'rule': 'R4', 'severity': 'warning',
+            'message': f'Apontamento em fim de semana — {", ".join(parts)}'}
+
+
+def _issue_no_entry(ds: str) -> dict:
+    return {'date': ds, 'rule': 'R0', 'severity': 'warning',
+            'message': 'Dia útil sem apontamento em nenhum dos sistemas'}
+
+
+def _issue_divergence(ds: str, g: float, t: float) -> dict:
+    return {'date': ds, 'rule': 'R1', 'severity': 'error',
+            'message': f'GA ({g:.2f}h) difere do Task faturado ({t:.2f}h) — diferença {g - t:+.2f}h'}
+
+
+def _issue_overtime(ds: str, g: float, mensal_ok: bool) -> dict:
+    sev = 'info' if mensal_ok else 'warning'
+    lbl = 'observação' if mensal_ok else 'ponto de ajuste — mensal comprometido'
+    return {'date': ds, 'rule': 'R2', 'severity': sev,
+            'message': f'GA ({g:.2f}h) excede 8h diárias ({lbl})'}
+
+
+def _validate_day(ds: str, g: float, t: float, mensal_ok: bool, TOL: float) -> list:
+    if ds_to_date(ds).weekday() >= 5:
+        issue = _issue_weekend(ds, g, t, TOL)
+        return [issue] if issue else []
+    if g <= TOL and t <= TOL:
+        return [_issue_no_entry(ds)]
+    issues = []
+    if abs(g - t) > TOL:
+        issues.append(_issue_divergence(ds, g, t))
+    if g > 8.0 + TOL:
+        issues.append(_issue_overtime(ds, g, mensal_ok))
+    return issues
+
+
 def validate(ga: dict, task: dict, y: int, m: int) -> tuple:
     TOL = 0.1
     wdays_list = get_working_days(y, m)
@@ -117,38 +171,68 @@ def validate(ga: dict, task: dict, y: int, m: int) -> tuple:
                       key=lambda x: (x[6:], x[3:5], x[:2]))
 
     for ds in all_days:
-        g = ga.get(ds, 0.0)
-        t = task.get(ds, 0.0)
-        d_obj = ds_to_date(ds)
-        is_weekend = d_obj.weekday() >= 5
-
-        if is_weekend and (g > TOL or t > TOL):
-            parts = []
-            if g > TOL: parts.append(f"GA: {g:.2f}h")
-            if t > TOL: parts.append(f"Task: {t:.2f}h")
-            issues.append({'date': ds, 'rule': 'R4', 'severity': 'warning',
-                           'message': f'Apontamento em fim de semana — {", ".join(parts)}'})
-            continue
-
-        if not is_weekend and g <= TOL and t <= TOL:
-            issues.append({'date': ds, 'rule': 'R0', 'severity': 'warning',
-                           'message': 'Dia útil sem apontamento em nenhum dos sistemas'})
-            continue
-
-        if abs(g - t) > TOL:
-            issues.append({'date': ds, 'rule': 'R1', 'severity': 'error',
-                           'message': f'GA ({g:.2f}h) difere do Task faturado ({t:.2f}h) — diferença {g - t:+.2f}h'})
-
-        if g > 8.0 + TOL:
-            sev = 'info' if mensal_ok else 'warning'
-            lbl = 'observação' if mensal_ok else 'ponto de ajuste — mensal comprometido'
-            issues.append({'date': ds, 'rule': 'R2', 'severity': sev,
-                           'message': f'GA ({g:.2f}h) excede 8h diárias ({lbl})'})
+        issues.extend(_validate_day(ds, ga.get(ds, 0.0), task.get(ds, 0.0), mensal_ok, TOL))
 
     return issues, mensal_ok, wdays, lim
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
+def _day_status(rules: list, sevs: dict) -> str:
+    if 'R1' in rules or 'R3' in rules:
+        return 'error'
+    if 'R4' in rules:
+        return 'r4'
+    if 'R0' in rules:
+        return 'r0'
+    if 'R2' in rules and sevs.get('R2') == 'warning':
+        return 'warning'
+    if 'R2' in rules:
+        return 'info'
+    return 'ok'
+
+
+def _build_days_data(all_dates: list, ga_daily: dict, task_daily: dict, issues: list) -> list:
+    days_data = []
+    for ds in all_dates:
+        g = round(ga_daily.get(ds, 0.0), 2)
+        t = round(task_daily.get(ds, 0.0), 2)
+        day_issues = [iss for iss in issues if iss['date'] == ds]
+        rules = [iss['rule'] for iss in day_issues]
+        sevs = {iss['rule']: iss['severity'] for iss in day_issues}
+        days_data.append({'date': ds, 'ga': g, 'task': t, 'diff': round(g - t, 2),
+                          'rules': rules, 'sevs': sevs, 'status': _day_status(rules, sevs)})
+    return days_data
+
+
+def _build_person(ga_name: str, task_id: str, ga_daily: dict, task_daily: dict,
+                  year: int, month: int, issues: list, wdays: int, lim: int, mensal_ok: bool) -> dict:
+    ga_tot = sum(ga_daily.values())
+    task_tot = sum(task_daily.values())
+    working = set(get_working_days(year, month))
+    all_dates = sorted(
+        set(list(ga_daily) + list(task_daily)) | working,
+        key=lambda x: (x[6:], x[3:5], x[:2])
+    )
+    return {
+        'name': ga_name,
+        'task_id': task_id,
+        'month_label': f"{MONTH_PT[month]} / {year}",
+        'export_suffix': f"{month:02d}{year}",
+        'ga_total': round(ga_tot, 2),
+        'task_total': round(task_tot, 2),
+        'diff_total': round(ga_tot - task_tot, 2),
+        'working_days': wdays,
+        'monthly_limit': lim,
+        'mensal_ok': mensal_ok,
+        'issues_count': len(issues),
+        'errors_count': len([i for i in issues if i['severity'] == 'error']),
+        'warnings_count': len([i for i in issues if i['severity'] == 'warning']),
+        'info_count': len([i for i in issues if i['severity'] == 'info']),
+        'days': _build_days_data(all_dates, ga_daily, task_daily, issues),
+        'issues': issues,
+    }
+
 
 def process(task_path: str, ga_paths: list) -> tuple:
     """Returns (persons: list[dict], errors: list[str])."""
@@ -173,54 +257,7 @@ def process(task_path: str, ga_paths: list) -> tuple:
 
         task_daily = task_data.get(task_id, {})
         issues, mensal_ok, wdays, lim = validate(ga_daily, task_daily, year, month)
-        ga_tot = sum(ga_daily.values())
-        task_tot = sum(task_daily.values())
-
-        working = set(get_working_days(year, month))
-        all_dates = sorted(
-            set(list(ga_daily) + list(task_daily)) | working,
-            key=lambda x: (x[6:], x[3:5], x[:2])
-        )
-
-        days_data = []
-        for ds in all_dates:
-            g = round(ga_daily.get(ds, 0.0), 2)
-            t = round(task_daily.get(ds, 0.0), 2)
-            day_issues = [iss for iss in issues if iss['date'] == ds]
-            rules = [iss['rule'] for iss in day_issues]
-            sevs = {iss['rule']: iss['severity'] for iss in day_issues}
-            if 'R1' in rules or 'R3' in rules:
-                status = 'error'
-            elif 'R4' in rules:
-                status = 'r4'
-            elif 'R0' in rules:
-                status = 'r0'
-            elif 'R2' in rules and sevs.get('R2') == 'warning':
-                status = 'warning'
-            elif 'R2' in rules:
-                status = 'info'
-            else:
-                status = 'ok'
-            days_data.append({'date': ds, 'ga': g, 'task': t, 'diff': round(g - t, 2),
-                               'rules': rules, 'sevs': sevs, 'status': status})
-
-        persons.append({
-            'name': ga_name,
-            'task_id': task_id,
-            'month_label': f"{MONTH_PT[month]} / {year}",
-            'export_suffix': f"{month:02d}{year}",
-            'ga_total': round(ga_tot, 2),
-            'task_total': round(task_tot, 2),
-            'diff_total': round(ga_tot - task_tot, 2),
-            'working_days': wdays,
-            'monthly_limit': lim,
-            'mensal_ok': mensal_ok,
-            'issues_count': len(issues),
-            'errors_count': len([i for i in issues if i['severity'] == 'error']),
-            'warnings_count': len([i for i in issues if i['severity'] == 'warning']),
-            'info_count': len([i for i in issues if i['severity'] == 'info']),
-            'days': days_data,
-            'issues': issues,
-        })
+        persons.append(_build_person(ga_name, task_id, ga_daily, task_daily,
+                                     year, month, issues, wdays, lim, mensal_ok))
 
     return persons, errors
