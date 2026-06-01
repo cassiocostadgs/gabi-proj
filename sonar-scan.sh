@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Roda o SonarScanner contra localhost:9000
+# Roda análise SonarQube com pysonar-scanner
 # Uso: ./sonar-scan.sh <TOKEN>
 #   TOKEN: gerado em http://localhost:9000 → My Account → Security → Generate Token
 
@@ -13,12 +13,12 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 
-# Verifica se sonar-scanner está disponível
-if ! command -v sonar-scanner &>/dev/null; then
-  echo "sonar-scanner não encontrado."
-  echo "Instale via: brew install sonar-scanner"
-  exit 1
+if ! command -v pysonar &>/dev/null; then
+  echo "pysonar não encontrado. Instalando..."
+  pip install pysonar-scanner -q
 fi
 
-sonar-scanner \
-  -Dsonar.token="$TOKEN"
+pysonar \
+  --sonar-host-url=http://localhost:9000 \
+  --sonar-token="$TOKEN" \
+  --sonar-project-key=GABI
