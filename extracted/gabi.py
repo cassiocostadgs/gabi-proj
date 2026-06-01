@@ -18,22 +18,36 @@ def parse_task(fp):
         result[resp][ds] += float(total)
     return dict(result)
 
-def parse_ga(fp):
-    from python_calamine import CalamineWorkbook
-    rows = CalamineWorkbook.from_path(fp).get_sheet_by_index(0).to_python(skip_empty_area=False)
+
+def _parse_ga_header(rows):
     hdr = rows[0][5] if rows and len(rows[0]) > 5 else ''
     parts = str(hdr).split('\n')
-    name = parts[1].strip() if len(parts) > 1 else hdr.strip()
+    name = parts[1].strip() if len(parts) > 1 else str(hdr).strip()
     comp = ''.join(filter(str.isdigit, parts[0])) if parts else ''
-    year, month = int(comp[:4]), int(comp[4:6]) if len(comp) >= 6 else (0, 0)
-    cur = None; daily = {}
+    year = int(comp[:4]) if len(comp) >= 4 else 0
+    month = int(comp[4:6]) if len(comp) >= 6 else 0
+    return name, year, month
+
+
+def _parse_ga_daily(rows):
+    cur = None
+    daily = {}
     for row in rows:
         b = row[1] if len(row) > 1 else None
         i = row[8] if len(row) > 8 else None
         q = row[9] if len(row) > 9 else None
-        if b and isinstance(b, str) and '/' in b: cur = b
+        if b and isinstance(b, str) and '/' in b:
+            cur = b
         if i == 'Total Data' and cur and b != 'Total' and q:
             daily[cur] = float(q)
+    return daily
+
+
+def parse_ga(fp):
+    from python_calamine import CalamineWorkbook
+    rows = CalamineWorkbook.from_path(fp).get_sheet_by_index(0).to_python(skip_empty_area=False)
+    name, year, month = _parse_ga_header(rows)
+    daily = _parse_ga_daily(rows)
     return name, daily, year, month
 
 # ── Matching ──────────────────────────────────────────────────────────────────
@@ -76,13 +90,57 @@ MONTH_PT = {1:'Janeiro',2:'Fevereiro',3:'Março',4:'Abril',5:'Maio',6:'Junho',
 def ds_to_date(ds):
     d,m,y = ds.split('/'); return date(int(y),int(m),int(d))
 
+
+def _issue_weekend(ds, g, t, tol):
+    if not (g > tol or t > tol):
+        return None
+    parts = []
+    if g > tol: parts.append(f"GA: {g:.2f}h")
+    if t > tol: parts.append(f"Task: {t:.2f}h")
+    return {'date': ds, 'rule': 'R4', 'severity': 'warning',
+            'message': f'Apontamento em fim de semana — {", ".join(parts)}'}
+
+
+def _issue_no_entry(ds):
+    return {'date': ds, 'rule': 'R0', 'severity': 'warning',
+            'message': 'Dia útil sem apontamento em nenhum dos sistemas'}
+
+
+def _issue_divergence(ds, g, t):
+    return {'date': ds, 'rule': 'R1', 'severity': 'error',
+            'message': f'GA ({g:.2f}h) difere do Task faturado ({t:.2f}h) — diferença {g-t:+.2f}h'}
+
+
+def _issue_overtime(ds, g, mensal_ok):
+    sev = 'info' if mensal_ok else 'warning'
+    lbl = 'observação' if mensal_ok else 'ponto de ajuste — mensal comprometido'
+    return {'date': ds, 'rule': 'R2', 'severity': sev,
+            'message': f'GA ({g:.2f}h) excede 8h diárias ({lbl})'}
+
+
+def _validate_day(ds, g, t, mensal_ok, tol):
+    if ds_to_date(ds).weekday() >= 5:
+        issue = _issue_weekend(ds, g, t, tol)
+        return [issue] if issue else []
+    if g <= tol and t <= tol:
+        return [_issue_no_entry(ds)]
+    issues = []
+    if abs(g - t) > tol:
+        issues.append(_issue_divergence(ds, g, t))
+    if g > 8.0 + tol:
+        issues.append(_issue_overtime(ds, g, mensal_ok))
+    return issues
+
+
 def validate(ga, task, y, m):
-    TOL = 0.1; wdays_list = get_working_days(y, m)
-    wdays = len(wdays_list); ga_tot = sum(ga.values()); lim = wdays * 8
-    mensal_ok = ga_tot <= lim + TOL
+    tol = 0.1
+    wdays_list = get_working_days(y, m)
+    wdays = len(wdays_list)
+    ga_tot = sum(ga.values())
+    lim = wdays * 8
+    mensal_ok = ga_tot <= lim + tol
     issues = []
 
-    # R3 — limite mensal
     if not mensal_ok:
         issues.append({'date': f'{m:02d}/{y}', 'rule': 'R3', 'severity': 'error',
             'message': f'Total mensal GA ({ga_tot:.2f}h) excede {lim}h ({wdays} dias úteis × 8h) — correção obrigatória'})
@@ -91,92 +149,103 @@ def validate(ga, task, y, m):
                       key=lambda x: (x[6:], x[3:5], x[:2]))
 
     for ds in all_days:
-        g = ga.get(ds, 0.0); t = task.get(ds, 0.0)
-        d_obj = ds_to_date(ds)
-        is_weekend = d_obj.weekday() >= 5
-
-        # R4 — apontamento em fim de semana
-        if is_weekend and (g > TOL or t > TOL):
-            parts = []
-            if g > TOL: parts.append(f"GA: {g:.2f}h")
-            if t > TOL: parts.append(f"Task: {t:.2f}h")
-            issues.append({'date': ds, 'rule': 'R4', 'severity': 'warning',
-                'message': f'Apontamento em fim de semana — {", ".join(parts)}'})
-            continue  # fins de semana não entram nas demais regras
-
-        # R0 — dia útil sem apontamento em nenhum sistema
-        if not is_weekend and g <= TOL and t <= TOL:
-            issues.append({'date': ds, 'rule': 'R0', 'severity': 'warning',
-                'message': 'Dia útil sem apontamento em nenhum dos sistemas'})
-            continue
-
-        # R1 — divergência
-        if abs(g - t) > TOL:
-            issues.append({'date': ds, 'rule': 'R1', 'severity': 'error',
-                'message': f'GA ({g:.2f}h) difere do Task faturado ({t:.2f}h) — diferença {g-t:+.2f}h'})
-
-        # R2 — limite diário
-        if g > 8.0 + TOL:
-            sev = 'info' if mensal_ok else 'warning'
-            lbl = 'observação' if mensal_ok else 'ponto de ajuste — mensal comprometido'
-            issues.append({'date': ds, 'rule': 'R2', 'severity': sev,
-                'message': f'GA ({g:.2f}h) excede 8h diárias ({lbl})'})
+        issues.extend(_validate_day(ds, ga.get(ds, 0.0), task.get(ds, 0.0), mensal_ok, tol))
 
     return issues, mensal_ok, wdays, lim
 
 # ── Markdown ──────────────────────────────────────────────────────────────────
+def _severity_icon(severity):
+    if severity == 'error': return '❌'
+    if severity == 'warning': return '⚠️'
+    return 'ℹ️'
+
+
+def _md_status_geral(p):
+    if not p['issues_count']:
+        return "✅ Sem inconsistências"
+    if p['errors_count']:
+        return f"❌ {p['errors_count']} erro(s) crítico(s)"
+    if p['warnings_count']:
+        return f"⚠️ {p['warnings_count']} aviso(s)"
+    return f"ℹ️ {p['info_count']} observação(ões)"
+
+
+def _md_person_header(p, status_geral):
+    ga_tot = p['ga_total']; task_tot = p['task_total']; lim = p['monthly_limit']
+    mensal_ok = p['mensal_ok']
+    status_mensal = "✅ OK" if mensal_ok else f"❌ EXCEDIDO em +{ga_tot - lim:.2f}h"
+    return [
+        f"# G.A.B.I. — {p['name']} · {p['month_label']}", "",
+        f"> **Status geral:** {status_geral}  ", f"> **Task ID:** `{p['task_id']}`", "",
+        "## Resumo Mensal", "", "| Métrica | Valor |", "|---|---|",
+        f"| GA Total | **{ga_tot:.2f}h** |",
+        f"| Task Faturado Total | {task_tot:.2f}h |",
+        f"| Diferença (GA − Task) | **{ga_tot - task_tot:+.2f}h** |",
+        f"| Dias úteis | {p['working_days']} dias |",
+        f"| Limite mensal | {lim}h ({p['working_days']} × 8h) |",
+        f"| Status mensal | {status_mensal} |", "",
+    ]
+
+
+def _md_pattern_section(p):
+    r1 = [i for i in p['issues'] if i['rule'] == 'R1']
+    if not r1:
+        return []
+    if not all(p['days'][j]['ga'] > p['days'][j]['task']
+               for j, d in enumerate(p['days']) if 'R1' in d['rules']):
+        return []
+    return [
+        "## Padrão Identificado", "",
+        f"GA consistentemente acima do Task em **{len(r1)} de {len(p['days'])} dias**.",
+        f"Task apontado com horas arredondadas (~{p['task_total']/max(len(p['days']),1):.1f}h/dia fixas);",
+        "GA registra horas reais. Ação: **ajustar o Task para refletir o GA**",
+        "(após regularizar dias que excedem o limite mensal).", "",
+    ]
+
+
+def _md_days_table(p):
+    lines = ["## Apontamentos por Dia", "", "| Data | GA (h) | Task Fat. (h) | Diferença | Flags |", "|---|---|---|---|---|"]
+    for d in p['days']:
+        diff_str = f"{d['diff']:+.2f}h" if abs(d['diff']) > 0.01 else "—"
+        lines.append(f"| {d['date']} | {d['ga']:.2f} | {d['task']:.2f} | {diff_str} | {' '.join(d['rules']) if d['rules'] else '✅'} |")
+    lines.append("")
+    return lines
+
+
+def _md_issues_section(p):
+    if not p['issues']:
+        return ["## Resultado", "", "✅ Nenhuma inconsistência encontrada.", ""]
+    mensal_ok = p['mensal_ok']
+    labels = {
+        'R3': '🔴 R3 — Limite mensal excedido (correção obrigatória)',
+        'R1': '🔴 R1 — Divergência GA vs Task',
+        'R2': f"{'⚠️' if not mensal_ok else 'ℹ️'} R2 — Dias com GA > 8h ({'ponto de ajuste' if not mensal_ok else 'observação'})",
+        'R0': '⚠️ R0 — Dias úteis sem apontamento',
+        'R4': '⚠️ R4 — Apontamentos em fim de semana',
+    }
+    by_rule = defaultdict(list)
+    for i in p['issues']:
+        by_rule[i['rule']].append(i)
+    lines = [f"## Inconsistências ({p['issues_count']} total)", ""]
+    for rule in ['R3', 'R1', 'R2', 'R0', 'R4']:
+        if rule not in by_rule:
+            continue
+        lines += [f"### {labels[rule]} ({len(by_rule[rule])})", ""]
+        for i in by_rule[rule]:
+            lines.append(f"- {_severity_icon(i['severity'])} **{i['date']}** — {i['message']}")
+        lines.append("")
+    return lines
+
+
 def build_md(persons):
     out = []
     for p in persons:
-        ga_tot=p['ga_total']; task_tot=p['task_total']; lim=p['monthly_limit']
-        mensal_ok=p['mensal_ok']; errors=p['errors_count']
-        status_mensal = "✅ OK" if mensal_ok else f"❌ EXCEDIDO em +{ga_tot-lim:.2f}h"
-        status_geral  = ("✅ Sem inconsistências" if not p['issues_count'] else
-                         f"❌ {errors} erro(s) crítico(s)" if errors else
-                         f"⚠️ {p['warnings_count']} aviso(s)" if p['warnings_count'] else
-                         f"ℹ️ {p['info_count']} observação(ões)")
-        out += [f"# G.A.B.I. — {p['name']} · {p['month_label']}","",
-                f"> **Status geral:** {status_geral}  ",f"> **Task ID:** `{p['task_id']}`","",
-                "## Resumo Mensal","","| Métrica | Valor |","|---|---|",
-                f"| GA Total | **{ga_tot:.2f}h** |",
-                f"| Task Faturado Total | {task_tot:.2f}h |",
-                f"| Diferença (GA − Task) | **{ga_tot-task_tot:+.2f}h** |",
-                f"| Dias úteis | {p['working_days']} dias |",
-                f"| Limite mensal | {lim}h ({p['working_days']} × 8h) |",
-                f"| Status mensal | {status_mensal} |",""]
-        r1 = [i for i in p['issues'] if i['rule']=='R1']
-        if r1 and all(p['days'][j]['ga']>p['days'][j]['task']
-                      for j,d in enumerate(p['days']) if 'R1' in d['rules']):
-            out += ["## Padrão Identificado","",
-                    f"GA consistentemente acima do Task em **{len(r1)} de {len(p['days'])} dias**.",
-                    f"Task apontado com horas arredondadas (~{task_tot/max(len(p['days']),1):.1f}h/dia fixas);",
-                    "GA registra horas reais. Ação: **ajustar o Task para refletir o GA**","(após regularizar dias que excedem o limite mensal).",""]
-        out += ["## Apontamentos por Dia","","| Data | GA (h) | Task Fat. (h) | Diferença | Flags |","|---|---|---|---|---|"]
-        for d in p['days']:
-            diff_str = f"{d['diff']:+.2f}h" if abs(d['diff'])>0.01 else "—"
-            out.append(f"| {d['date']} | {d['ga']:.2f} | {d['task']:.2f} | {diff_str} | {' '.join(d['rules']) if d['rules'] else '✅'} |")
-        out.append("")
-        if p['issues']:
-            out.append(f"## Inconsistências ({p['issues_count']} total)"); out.append("")
-            by_rule = defaultdict(list)
-            for i in p['issues']: by_rule[i['rule']].append(i)
-            labels = {
-                'R3':'🔴 R3 — Limite mensal excedido (correção obrigatória)',
-                'R1':'🔴 R1 — Divergência GA vs Task',
-                'R2':f"{'⚠️' if not mensal_ok else 'ℹ️'} R2 — Dias com GA > 8h ({'ponto de ajuste' if not mensal_ok else 'observação'})",
-                'R0':'⚠️ R0 — Dias úteis sem apontamento',
-                'R4':'⚠️ R4 — Apontamentos em fim de semana',
-            }
-            for rule in ['R3','R1','R2','R0','R4']:
-                if rule not in by_rule: continue
-                out += [f"### {labels[rule]} ({len(by_rule[rule])})",""]
-                for i in by_rule[rule]:
-                    icon = '❌' if i['severity']=='error' else '⚠️' if i['severity']=='warning' else 'ℹ️'
-                    out.append(f"- {icon} **{i['date']}** — {i['message']}")
-                out.append("")
-        else:
-            out += ["## Resultado","","✅ Nenhuma inconsistência encontrada.",""]
-        out += ["---","*Gerado por G.A.B.I. — Gap Auditor of Billed Input*",""]
+        status_geral = _md_status_geral(p)
+        out += _md_person_header(p, status_geral)
+        out += _md_pattern_section(p)
+        out += _md_days_table(p)
+        out += _md_issues_section(p)
+        out += ["---", "*Gerado por G.A.B.I. — Gap Auditor of Billed Input*", ""]
     return '\n'.join(out)
 
 # ── Chart JS ──────────────────────────────────────────────────────────────────
@@ -491,8 +560,8 @@ function showDetail(idx){
         <div class="li"><div class="ld" style="background:rgba(59,130,246,.8)"></div>GA</div>
         <div class="li"><div class="ld" style="background:rgba(16,185,129,.8)"></div>Task Faturado</div>
         <div class="li"><div class="ll" style="background:rgba(239,68,68,.6)"></div>Limite 8h</div>
-        <div class="li"><span class="lbadge" style="color:#ef4444;border-color:#ef4444;background:rgba(239,68,68,.12)">R1</span>&nbsp;Divergência</div>
         <div class="li"><span class="lbadge" id="leg-r2-${idx}" style="">R2</span>&nbsp;GA &gt; 8h</div>
+        <div class="li"><span class="lbadge" style="color:#ef4444;border-color:#ef4444;background:rgba(239,68,68,.12)">R1</span>&nbsp;Divergência</div>
         <div class="li"><span class="lbadge" style="color:#eab308;border-color:#eab308;background:rgba(234,179,8,.12)">R0</span>&nbsp;Sem apontamento</div>
         <div class="li"><span class="lbadge" style="color:#a855f7;border-color:#a855f7;background:rgba(168,85,247,.12)">R4</span>&nbsp;Fim de semana</div>
       </div>
@@ -544,6 +613,45 @@ render();
             + CHART_JS + ui_js + '</script></body></html>')
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+def _day_status(rules, sevs):
+    if 'R1' in rules or 'R3' in rules: return 'error'
+    if 'R4' in rules: return 'r4'
+    if 'R0' in rules: return 'r0'
+    if 'R2' in rules and sevs.get('R2') == 'warning': return 'warning'
+    if 'R2' in rules: return 'info'
+    return 'ok'
+
+
+def _build_person(ga_name, task_id, ga_daily, task_daily, year, month, issues, wdays, lim, mensal_ok):
+    ga_tot = sum(ga_daily.values())
+    task_tot = sum(task_daily.values())
+    working = set(get_working_days(year, month))
+    all_dates = sorted(set(list(ga_daily) + list(task_daily)) | working,
+                       key=lambda x: (x[6:], x[3:5], x[:2]))
+    days_data = []
+    for ds in all_dates:
+        g = round(ga_daily.get(ds, 0.0), 2)
+        t = round(task_daily.get(ds, 0.0), 2)
+        day_issues = [i for i in issues if i['date'] == ds]
+        rules = [i['rule'] for i in day_issues]
+        sevs = {i['rule']: i['severity'] for i in day_issues}
+        days_data.append({'date': ds, 'ga': g, 'task': t, 'diff': round(g - t, 2),
+                          'rules': rules, 'sevs': sevs, 'status': _day_status(rules, sevs)})
+    return {
+        'name': ga_name, 'task_id': task_id,
+        'month_label': f"{MONTH_PT[month]} / {year}",
+        'export_suffix': f"{month:02d}{year}",
+        'ga_total': round(ga_tot, 2), 'task_total': round(task_tot, 2),
+        'diff_total': round(ga_tot - task_tot, 2),
+        'working_days': wdays, 'monthly_limit': lim, 'mensal_ok': mensal_ok,
+        'issues_count': len(issues),
+        'errors_count': len([i for i in issues if i['severity'] == 'error']),
+        'warnings_count': len([i for i in issues if i['severity'] == 'warning']),
+        'info_count': len([i for i in issues if i['severity'] == 'info']),
+        'days': days_data, 'issues': issues,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description='G.A.B.I. — Gap Auditor of Billed Input')
     parser.add_argument('--task', required=True)
@@ -563,41 +671,8 @@ def main():
             continue
         task_daily = task_data.get(task_id, {})
         issues, mensal_ok, wdays, lim = validate(ga_daily, task_daily, year, month)
-        ga_tot = sum(ga_daily.values()); task_tot = sum(task_daily.values())
-
-        # Todos os dias relevantes: dias úteis + dias com apontamentos
-        working = set(get_working_days(year, month))
-        all_dates = sorted(set(list(ga_daily) + list(task_daily)) | working,
-                           key=lambda x: (x[6:], x[3:5], x[:2]))
-
-        days_data = []
-        for ds in all_dates:
-            g = round(ga_daily.get(ds, 0.0), 2); t = round(task_daily.get(ds, 0.0), 2)
-            day_issues = [i for i in issues if i['date'] == ds]
-            rules = [i['rule'] for i in day_issues]
-            sevs  = {i['rule']: i['severity'] for i in day_issues}
-            if 'R1' in rules or 'R3' in rules: status = 'error'
-            elif 'R4' in rules: status = 'r4'
-            elif 'R0' in rules: status = 'r0'
-            elif 'R2' in rules and sevs.get('R2') == 'warning': status = 'warning'
-            elif 'R2' in rules: status = 'info'
-            else: status = 'ok'
-            days_data.append({'date':ds,'ga':g,'task':t,'diff':round(g-t,2),
-                               'rules':rules,'sevs':sevs,'status':status})
-
-        persons.append({
-            'name':ga_name, 'task_id':task_id,
-            'month_label':f"{MONTH_PT[month]} / {year}",
-            'export_suffix':f"{month:02d}{year}",
-            'ga_total':round(ga_tot,2), 'task_total':round(task_tot,2),
-            'diff_total':round(ga_tot-task_tot,2),
-            'working_days':wdays, 'monthly_limit':lim, 'mensal_ok':mensal_ok,
-            'issues_count':len(issues),
-            'errors_count':len([i for i in issues if i['severity']=='error']),
-            'warnings_count':len([i for i in issues if i['severity']=='warning']),
-            'info_count':len([i for i in issues if i['severity']=='info']),
-            'days':days_data, 'issues':issues,
-        })
+        persons.append(_build_person(ga_name, task_id, ga_daily, task_daily,
+                                     year, month, issues, wdays, lim, mensal_ok))
 
     if not persons:
         print("Nenhuma pessoa processada.", file=sys.stderr); sys.exit(1)
