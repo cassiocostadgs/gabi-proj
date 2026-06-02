@@ -281,6 +281,7 @@
   </div>
 </div>
 
+<script src="/utils.js"></script>
 <script>
 // ════════════════════════ STATE ════════════════════════
 let ADMIN_TOKEN      = localStorage.getItem('gabi_admin_token');
@@ -306,12 +307,6 @@ function competenciaLabel(val) {
   return `${MONTHS[parseInt(m, 10) - 1]} de ${y}`;
 }
 
-function fmtDt(s) {
-  const raw = (s || '').substring(0, 16).replace('T', ' ');
-  const [d, t] = raw.split(' ');
-  const [y, m, dd] = (d || '').split('-');
-  return y && m && dd ? `${dd}/${m}/${y} ${t || ''}`.trim() : raw;
-}
 
 function buildYearSelect() {
   const sel = document.getElementById('sel-year');
@@ -724,10 +719,7 @@ async function loadAdminHistory() {
       <tbody>${sorted.map((t, i) => {
         const fname = t.filename || '';
         const fnTrunc = fname.length > 45 ? fname.substring(0, 42) + '…' : fname;
-        const rawDt = (t.uploaded_at || '').substring(0, 16).replace('T', ' ');
-        const [dp, tp] = rawDt.split(' ');
-        const [, mm, dd] = (dp || '').split('-');
-        const compDt = dd && mm ? `${dd}/${mm} ${tp || ''}` : rawDt;
+        const compDt = fmtDtShort(t.uploaded_at);
         return `
         <tr class="${i === 0 ? 'rok' : ''}">
           <td>${sorted.length - i}</td>

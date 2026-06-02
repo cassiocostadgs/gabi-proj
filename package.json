@@ -1,0 +1,8 @@
+{
+  "name": "gabi-web",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test:js": "TZ=UTC node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage-js.lcov tests/test_utils.js"
+  }
+}
