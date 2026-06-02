@@ -394,7 +394,7 @@ function renderTaskCard() {
   const el = document.getElementById('task-status-card');
   if (!TASK_STATUS?.available) {
     el.innerHTML = `<div class="task-card task-card-wait">
-      <div class="task-card-icon">⏳</div>
+      <div class="task-card-icon"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="10" cy="10" r="9" fill="#78350f" stroke="#d97706" stroke-width="1.5"/><path d="M10 6v4l2.5 2.5" stroke="#fcd34d" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       <div class="task-card-body">
         <strong>Aguardando upload do relatório</strong>
         <div class="task-card-meta">O administrador ainda não carregou o arquivo Task deste mês.</div>
