@@ -594,6 +594,7 @@ document.getElementById('admin-login-form').addEventListener('submit', async e =
     ADMIN_TOKEN = data.access_token;
     localStorage.setItem('gabi_admin_token', ADMIN_TOKEN);
     const me = await fetch('/auth/me', { headers: { 'Authorization': 'Bearer ' + ADMIN_TOKEN } });
+    if (!me.ok) throw new Error('Falha ao verificar sessão. Verifique as configurações do servidor.');
     const meData = await me.json();
     document.getElementById('admin-email').textContent = meData.email;
     showAdminSection('panel');
