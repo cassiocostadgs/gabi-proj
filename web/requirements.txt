@@ -3,5 +3,7 @@ uvicorn[standard]==0.32.1
 python-multipart==0.0.12
 python-jose[cryptography]==3.3.0
 bcrypt==4.2.1
-python-calamine==0.2.2
+python-calamine==0.6.2
 xlrd==2.0.1
+oracledb==4.0.1
+python-dotenv==1.1.0
