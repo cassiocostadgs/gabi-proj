@@ -18,7 +18,9 @@ import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
+  BarController,
   BarElement,
+  LineController,
   LineElement,
   PointElement,
   Tooltip,
@@ -31,7 +33,17 @@ import { Layout } from '../../components/Layout'
 import { fmtHours, diffClass } from '../../lib/format'
 import type { Person, ValidationResult, DayResult, Issue } from '../../types'
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend)
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarController,
+  BarElement,
+  LineController,
+  LineElement,
+  PointElement,
+  Tooltip,
+  Legend
+)
 
 const RULE_ICON: Record<string, LucideIcon> = {
   R0: CalendarX,
