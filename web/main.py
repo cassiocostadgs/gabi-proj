@@ -136,7 +136,7 @@ def _current_user(token: Annotated[str, Depends(oauth2)]) -> str:
         email: str = payload.get("sub", "")
         if not email:
             raise ValueError
-    except JWTError, ValueError:
+    except (JWTError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido ou expirado",
