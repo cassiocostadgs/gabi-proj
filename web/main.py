@@ -16,6 +16,7 @@ import bcrypt
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
@@ -480,4 +481,17 @@ def startup() -> None:
 
 
 if STATIC_DIR.exists():
-    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+    if STATIC_DIR == _FRONTEND_DIST:
+        # React SPA: serve /assets/* as static files; every other GET path serves
+        # index.html so React Router handles client-side navigation (/results, etc.)
+        assets_dir = STATIC_DIR / "assets"
+        if assets_dir.exists():
+            app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+        @app.get("/{full_path:path}")
+        async def spa_fallback(full_path: str):
+            return FileResponse(STATIC_DIR / "index.html")
+
+    else:
+        # Legacy monolith — html=True makes / serve index.html automatically
+        app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
