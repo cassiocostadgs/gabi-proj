@@ -304,7 +304,9 @@ async def oracle_status():
         return {"available": False}
     from repositories.task_repository import ping
 
-    available = await anyio.to_thread.run_sync(ping)
+    available = False
+    with anyio.move_on_after(3), contextlib.suppress(Exception):
+        available = await anyio.to_thread.run_sync(ping, cancellable=True)
     return {"available": available}
 
 
