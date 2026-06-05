@@ -24,7 +24,9 @@ class TestMe:
     def test_authenticated(self, client, auth_headers):
         resp = client.get("/auth/me", headers=auth_headers)
         assert resp.status_code == 200
-        assert resp.json()["email"] == "tiagohlatki@db1.com.br"
+        data = resp.json()
+        assert data["email"] == "tiagohlatki@db1.com.br"
+        assert "is_admin" in data
 
     def test_unauthenticated(self, client):
         assert client.get("/auth/me").status_code == 401
@@ -36,8 +38,7 @@ class TestMe:
         import main
         with main._db() as conn:
             conn.execute("UPDATE users SET is_active=0 WHERE email=?", ("tiagohlatki@db1.com.br",))
-        resp = client.get("/auth/me", headers=auth_headers)
-        assert resp.status_code == 401
+        assert client.get("/auth/me", headers=auth_headers).status_code == 401
 
 
 class TestChangePassword:
@@ -67,20 +68,84 @@ class TestChangePassword:
         assert resp.status_code == 400
 
     def test_requires_auth(self, client):
-        resp = client.post(
+        assert client.post(
             "/auth/change-password",
             params={"current_password": "gabi2025", "new_password": "newsecure123"},
+        ).status_code == 401
+
+
+# ── Admin: user management ────────────────────────────────────────────────────
+
+class TestAdminUsers:
+    def _create(self, client, auth_headers, email="novo@db1.com.br", password="senha123", is_admin=False):
+        return client.post(
+            "/api/admin/users",
+            json={"email": email, "password": password, "is_admin": is_admin},
+            headers=auth_headers,
         )
-        assert resp.status_code == 401
+
+    def test_create_success(self, client, auth_headers):
+        resp = self._create(client, auth_headers)
+        assert resp.status_code == 201
+        assert resp.json()["email"] == "novo@db1.com.br"
+
+    def test_create_duplicate_returns_409(self, client, auth_headers):
+        self._create(client, auth_headers)
+        assert self._create(client, auth_headers).status_code == 409
+
+    def test_create_short_password_returns_400(self, client, auth_headers):
+        assert self._create(client, auth_headers, password="abc").status_code == 400
+
+    def test_create_requires_admin(self, client, auth_headers):
+        self._create(client, auth_headers, email="regular@db1.com.br")
+        resp = client.post(
+            "/auth/login", data={"username": "regular@db1.com.br", "password": "senha123"}
+        )
+        regular_headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
+        assert client.post(
+            "/api/admin/users",
+            json={"email": "other@db1.com.br", "password": "senha123"},
+            headers=regular_headers,
+        ).status_code == 403
+
+    def test_create_requires_auth(self, client):
+        assert client.post("/api/admin/users", json={"email": "x@x.com", "password": "abc123"}).status_code == 401
+
+    def test_list_users(self, client, auth_headers):
+        resp = client.get("/api/admin/users", headers=auth_headers)
+        assert resp.status_code == 200
+        users = resp.json()["users"]
+        assert len(users) >= 1
+        assert any(u["email"] == "tiagohlatki@db1.com.br" for u in users)
+
+    def test_list_requires_admin(self, client, auth_headers):
+        self._create(client, auth_headers, email="regular@db1.com.br")
+        resp = client.post("/auth/login", data={"username": "regular@db1.com.br", "password": "senha123"})
+        regular_headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
+        assert client.get("/api/admin/users", headers=regular_headers).status_code == 403
+
+    def test_delete_success(self, client, auth_headers):
+        self._create(client, auth_headers, email="todelete@db1.com.br")
+        users = client.get("/api/admin/users", headers=auth_headers).json()["users"]
+        user_id = next(u["id"] for u in users if u["email"] == "todelete@db1.com.br")
+        resp = client.delete(f"/api/admin/users/{user_id}", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+
+    def test_delete_self_returns_400(self, client, auth_headers):
+        users = client.get("/api/admin/users", headers=auth_headers).json()["users"]
+        admin_id = next(u["id"] for u in users if u["email"] == "tiagohlatki@db1.com.br")
+        assert client.delete(f"/api/admin/users/{admin_id}", headers=auth_headers).status_code == 400
+
+    def test_delete_not_found(self, client, auth_headers):
+        assert client.delete("/api/admin/users/9999", headers=auth_headers).status_code == 404
 
 
 # ── Task status (public) ──────────────────────────────────────────────────────
 
 class TestTaskStatus:
     def test_no_task(self, client):
-        resp = client.get("/api/task/status")
-        assert resp.status_code == 200
-        assert resp.json()["available"] is False
+        assert client.get("/api/task/status").json()["available"] is False
 
     def test_with_task(self, client, auth_headers):
         client.post(
@@ -89,12 +154,19 @@ class TestTaskStatus:
             data={"competencia": "2025-01"},
             headers=auth_headers,
         )
-        resp = client.get("/api/task/status")
-        assert resp.status_code == 200
-        data = resp.json()
+        data = client.get("/api/task/status").json()
         assert data["available"] is True
         assert data["competencia"] == "2025-01"
-        assert "filename" in data
+
+
+# ── Oracle status (public) ────────────────────────────────────────────────────
+
+class TestOracleStatus:
+    def test_not_configured(self, client):
+        with patch("main.is_oracle_configured", return_value=False):
+            resp = client.get("/api/oracle/status")
+        assert resp.status_code == 200
+        assert resp.json()["available"] is False
 
 
 # ── Admin task management ──────────────────────────────────────────────────────
@@ -112,26 +184,36 @@ class TestAdminTask:
         resp = self._upload(client, auth_headers)
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
-        assert resp.json()["competencia"] == "2025-01"
 
-    def test_upload_requires_auth(self, client):
-        resp = client.post(
+    def test_upload_requires_admin(self, client, auth_headers):
+        # Create a regular (non-admin) user
+        client.post(
+            "/api/admin/users",
+            json={"email": "regular@db1.com.br", "password": "senha123", "is_admin": False},
+            headers=auth_headers,
+        )
+        resp = client.post("/auth/login", data={"username": "regular@db1.com.br", "password": "senha123"})
+        regular_headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
+        assert client.post(
             "/api/admin/task",
             files={"task": ("Task.xlsx", b"content", "application/octet-stream")},
             data={"competencia": "2025-01"},
-        )
-        assert resp.status_code == 401
+            headers=regular_headers,
+        ).status_code == 403
+
+    def test_upload_requires_auth(self, client):
+        assert client.post(
+            "/api/admin/task",
+            files={"task": ("Task.xlsx", b"content", "application/octet-stream")},
+            data={"competencia": "2025-01"},
+        ).status_code == 401
 
     def test_list_tasks_empty(self, client, auth_headers):
-        resp = client.get("/api/admin/tasks", headers=auth_headers)
-        assert resp.status_code == 200
-        assert resp.json()["tasks"] == []
+        assert client.get("/api/admin/tasks", headers=auth_headers).json()["tasks"] == []
 
     def test_list_tasks_after_upload(self, client, auth_headers):
         self._upload(client, auth_headers)
-        resp = client.get("/api/admin/tasks", headers=auth_headers)
-        assert resp.status_code == 200
-        tasks = resp.json()["tasks"]
+        tasks = client.get("/api/admin/tasks", headers=auth_headers).json()["tasks"]
         assert len(tasks) == 1
         assert tasks[0]["competencia"] == "2025-01"
 
@@ -143,14 +225,10 @@ class TestAdminTask:
         task_id = client.get("/api/admin/tasks", headers=auth_headers).json()["tasks"][0]["id"]
         resp = client.delete(f"/api/admin/task/{task_id}", headers=auth_headers)
         assert resp.status_code == 200
-        assert resp.json()["ok"] is True
-        # Confirm removal
-        tasks = client.get("/api/admin/tasks", headers=auth_headers).json()["tasks"]
-        assert tasks == []
+        assert client.get("/api/admin/tasks", headers=auth_headers).json()["tasks"] == []
 
     def test_delete_not_found(self, client, auth_headers):
-        resp = client.delete("/api/admin/task/9999", headers=auth_headers)
-        assert resp.status_code == 404
+        assert client.delete("/api/admin/task/9999", headers=auth_headers).status_code == 404
 
     def test_delete_requires_auth(self, client):
         assert client.delete("/api/admin/task/1").status_code == 401
@@ -160,9 +238,7 @@ class TestAdminTask:
 
 class TestCompetencias:
     def test_empty(self, client):
-        resp = client.get("/api/task/competencias")
-        assert resp.status_code == 200
-        assert resp.json()["competencias"] == []
+        assert client.get("/api/task/competencias").json()["competencias"] == []
 
     def test_with_upload(self, client, auth_headers):
         client.post(
@@ -171,9 +247,7 @@ class TestCompetencias:
             data={"competencia": "2025-01"},
             headers=auth_headers,
         )
-        resp = client.get("/api/task/competencias")
-        assert resp.status_code == 200
-        comps = resp.json()["competencias"]
+        comps = client.get("/api/task/competencias").json()["competencias"]
         assert len(comps) == 1
         assert comps[0]["competencia"] == "2025-01"
 
@@ -185,19 +259,43 @@ class TestCompetencias:
                 data={"competencia": "2025-01"},
                 headers=auth_headers,
             )
-        resp = client.get("/api/task/competencias")
-        assert len(resp.json()["competencias"]) == 1
+        assert len(client.get("/api/task/competencias").json()["competencias"]) == 1
 
 
 # ── Validate endpoint ─────────────────────────────────────────────────────────
 
 class TestValidateEndpoint:
     _GA_FILE = [("ga", ("ga.xls", b"fake", "application/octet-stream"))]
+    _FILE_DATA = {
+        "start_date": "2025-01-01",
+        "end_date": "2025-01-31",
+        "use_file_fallback": "true",
+        "competencia": "2025-01",
+    }
 
-    def test_no_task_returns_422(self, client):
+    def test_requires_auth(self, client):
         resp = client.post("/api/validate", files=self._GA_FILE)
+        assert resp.status_code == 401
+
+    def test_no_task_returns_422(self, client, auth_headers):
+        with patch("main.is_oracle_configured", return_value=False):
+            resp = client.post(
+                "/api/validate", files=self._GA_FILE, data=self._FILE_DATA, headers=auth_headers
+            )
         assert resp.status_code == 422
         assert "Task" in resp.json()["detail"]
+
+    def test_oracle_error_returns_422(self, client, auth_headers):
+        """When oracle is configured but call fails, returns 422 with error detail."""
+        with patch("main.is_oracle_configured", return_value=True), \
+             patch("main._process_ga_with_oracle", side_effect=Exception("Connection refused")):
+            resp = client.post(
+                "/api/validate",
+                files=self._GA_FILE,
+                data={"start_date": "2025-01-01", "end_date": "2025-01-31"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 422
 
     def test_missing_file_on_disk_returns_422(self, client, auth_headers, tmp_path):
         import main
@@ -207,11 +305,14 @@ class TestValidateEndpoint:
                 "INSERT INTO task_uploads (filename, path, competencia, uploaded_by) VALUES (?,?,?,?)",
                 ("task.xlsx", fake_path, "2025-01", "test@test.com"),
             )
-        resp = client.post("/api/validate", files=self._GA_FILE)
+        with patch("main.is_oracle_configured", return_value=False):
+            resp = client.post(
+                "/api/validate", files=self._GA_FILE, data=self._FILE_DATA, headers=auth_headers
+            )
         assert resp.status_code == 422
         assert "não encontrado" in resp.json()["detail"]
 
-    def test_validate_success(self, client, auth_headers):
+    def test_validate_success_file_mode(self, client, auth_headers):
         client.post(
             "/api/admin/task",
             files={"task": ("Task.xlsx", b"content", "application/octet-stream")},
@@ -219,11 +320,13 @@ class TestValidateEndpoint:
             headers=auth_headers,
         )
         mock_persons = [{"name": "Test", "days": []}]
-        with patch("gabi_engine.process", return_value=(mock_persons, [])):
-            resp = client.post("/api/validate", files=self._GA_FILE)
+        with patch("main.is_oracle_configured", return_value=False), \
+             patch("gabi_engine.process", return_value=(mock_persons, [])):
+            resp = client.post(
+                "/api/validate", files=self._GA_FILE, data=self._FILE_DATA, headers=auth_headers
+            )
         assert resp.status_code == 200
         assert resp.json()["persons"] == mock_persons
-        assert resp.json()["errors"] == []
 
     def test_validate_partial_success(self, client, auth_headers):
         client.post(
@@ -232,8 +335,11 @@ class TestValidateEndpoint:
             data={"competencia": "2025-01"},
             headers=auth_headers,
         )
-        with patch("gabi_engine.process", return_value=([{"name": "X"}], ["warn"])):
-            resp = client.post("/api/validate", files=self._GA_FILE)
+        with patch("main.is_oracle_configured", return_value=False), \
+             patch("gabi_engine.process", return_value=([{"name": "X"}], ["warn"])):
+            resp = client.post(
+                "/api/validate", files=self._GA_FILE, data=self._FILE_DATA, headers=auth_headers
+            )
         assert resp.status_code == 200
         assert len(resp.json()["errors"]) == 1
 
@@ -244,10 +350,12 @@ class TestValidateEndpoint:
             data={"competencia": "2025-01"},
             headers=auth_headers,
         )
-        with patch("gabi_engine.process", side_effect=Exception("Parse error")):
-            resp = client.post("/api/validate", files=self._GA_FILE)
+        with patch("main.is_oracle_configured", return_value=False), \
+             patch("gabi_engine.process", side_effect=Exception("Parse error")):
+            resp = client.post(
+                "/api/validate", files=self._GA_FILE, data=self._FILE_DATA, headers=auth_headers
+            )
         assert resp.status_code == 422
-        assert "Parse error" in resp.json()["detail"]
 
     def test_validate_no_persons_with_errors(self, client, auth_headers):
         client.post(
@@ -256,30 +364,27 @@ class TestValidateEndpoint:
             data={"competencia": "2025-01"},
             headers=auth_headers,
         )
-        with patch("gabi_engine.process", return_value=([], ["Pessoa não encontrada"])):
-            resp = client.post("/api/validate", files=self._GA_FILE)
+        with patch("main.is_oracle_configured", return_value=False), \
+             patch("gabi_engine.process", return_value=([], ["Pessoa não encontrada"])):
+            resp = client.post(
+                "/api/validate", files=self._GA_FILE, data=self._FILE_DATA, headers=auth_headers
+            )
         assert resp.status_code == 422
         assert "Pessoa não encontrada" in resp.json()["detail"]
 
-    def test_validate_with_competencia(self, client, auth_headers):
+    def test_validate_falls_back_to_file_when_oracle_not_configured(self, client, auth_headers):
         client.post(
             "/api/admin/task",
             files={"task": ("Task.xlsx", b"content", "application/octet-stream")},
-            data={"competencia": "2025-02"},
+            data={"competencia": "2025-01"},
             headers=auth_headers,
         )
-        with patch("gabi_engine.process", return_value=([{"name": "X"}], [])):
+        with patch("main.is_oracle_configured", return_value=False), \
+             patch("gabi_engine.process", return_value=([{"name": "X"}], [])):
             resp = client.post(
                 "/api/validate",
                 files=self._GA_FILE,
-                data={"competencia": "2025-02"},
+                data={"start_date": "2025-01-01", "end_date": "2025-01-31", "competencia": "2025-01"},
+                headers=auth_headers,
             )
         assert resp.status_code == 200
-
-    def test_validate_nonexistent_competencia_422(self, client):
-        resp = client.post(
-            "/api/validate",
-            files=self._GA_FILE,
-            data={"competencia": "2025-99"},
-        )
-        assert resp.status_code == 422

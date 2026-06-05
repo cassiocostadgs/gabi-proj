@@ -239,6 +239,10 @@ class TestValidateDay:
         result = _validate_day("02/06/2025", 0.0, 0.0, True, 0.1)
         assert len(result) == 1 and result[0]["rule"] == "R0"
 
+    def test_working_no_entry_with_nf_suppresses_r0(self):
+        result = _validate_day("02/06/2025", 0.0, 0.0, True, 0.1, nf=1.0)
+        assert result == []
+
     def test_working_match(self):
         assert _validate_day("02/06/2025", 8.0, 8.0, True, 0.1) == []
 
@@ -256,6 +260,20 @@ class TestValidateDay:
         result = _validate_day("02/06/2025", 9.0, 9.0, False, 0.1)
         overtime = [i for i in result if i["rule"] == "R2"]
         assert overtime[0]["severity"] == "warning"
+
+    def test_holiday_no_data_no_issue(self):
+        # 21/04/2025 = Tiradentes (terça-feira)
+        result = _validate_day("21/04/2025", 0.0, 0.0, True, 0.1, holidays=get_holidays(2025))
+        assert result == []
+
+    def test_holiday_with_ga_generates_r4(self):
+        result = _validate_day("21/04/2025", 4.0, 0.0, True, 0.1, holidays=get_holidays(2025))
+        assert len(result) == 1 and result[0]["rule"] == "R4"
+
+    def test_holiday_without_holidays_kwarg_is_treated_as_weekday(self):
+        # sem passar holidays=, feriado em dia útil cai nas regras normais de dia útil
+        result = _validate_day("21/04/2025", 0.0, 0.0, True, 0.1)
+        assert any(i["rule"] == "R0" for i in result)
 
 
 # ── validate ──────────────────────────────────────────────────────────────────
@@ -322,6 +340,12 @@ class TestDayStatus:
     def test_ok(self):
         assert _day_status([], {}) == "ok"
 
+    def test_is_holiday_gives_r4(self):
+        assert _day_status([], {}, is_holiday=True) == "r4"
+
+    def test_error_takes_priority_over_holiday(self):
+        assert _day_status(["R1"], {}, is_holiday=True) == "error"
+
 
 # ── _build_days_data ──────────────────────────────────────────────────────────
 
@@ -332,6 +356,7 @@ class TestBuildDaysData:
             ["02/06/2025"],
             {"02/06/2025": 8.0},
             {"02/06/2025": 7.0},
+            {},
             issues,
         )
         assert len(result) == 1
@@ -343,7 +368,7 @@ class TestBuildDaysData:
         assert day["status"] == "error"
 
     def test_missing_day_defaults_to_zero(self):
-        result = _build_days_data(["02/06/2025"], {}, {}, [])
+        result = _build_days_data(["02/06/2025"], {}, {}, {}, [])
         assert result[0]["ga"] == pytest.approx(0.0)
         assert result[0]["task"] == pytest.approx(0.0)
         assert result[0]["status"] == "ok"
@@ -353,7 +378,7 @@ class TestBuildDaysData:
             {"date": "02/06/2025", "rule": "R1", "severity": "error", "message": "a"},
             {"date": "02/06/2025", "rule": "R2", "severity": "warning", "message": "b"},
         ]
-        result = _build_days_data(["02/06/2025"], {}, {}, issues)
+        result = _build_days_data(["02/06/2025"], {}, {}, {}, issues)
         assert set(result[0]["rules"]) == {"R1", "R2"}
 
 
@@ -392,3 +417,49 @@ class TestBuildPerson:
         person = _build_person("x", "x", ga, task, 2025, 1, issues, wdays, lim, mensal_ok)
         assert person["ga_total"] == pytest.approx(round(sum(ga.values()), 2))
         assert person["task_total"] == pytest.approx(round(sum(task.values()), 2))
+
+    def test_holiday_included_with_r4_status(self):
+        # Abril/2025: 21/04 = Tiradentes (terça-feira, sem apontamento)
+        days = get_working_days(2025, 4)
+        ga = dict.fromkeys(days, 8.0)
+        task = dict.fromkeys(days, 8.0)
+        issues, mensal_ok, wdays, lim = validate(ga, task, 2025, 4)
+        person = _build_person("x", "x", ga, task, 2025, 4, issues, wdays, lim, mensal_ok)
+        holiday_day = next((d for d in person["days"] if d["date"] == "21/04/2025"), None)
+        assert holiday_day is not None
+        assert holiday_day["is_holiday"] is True
+        assert holiday_day["status"] == "r4"
+        assert holiday_day["rules"] == []
+
+
+# ── process_with_task_data ────────────────────────────────────────────────────
+
+class TestProcessWithTaskData:
+    def test_clean_month_no_issues(self):
+        days = get_working_days(2025, 1)
+        ga = dict.fromkeys(days, 8.0)
+        task = dict.fromkeys(days, 8.0)
+        person = gabi_engine.process_with_task_data("pedro.santos", task, "Pedro Santos", ga, 2025, 1)
+        assert person["name"] == "Pedro Santos"
+        assert person["task_id"] == "pedro.santos"
+        assert person["issues_count"] == 0
+        assert person["ga_total"] == pytest.approx(round(sum(ga.values()), 2))
+
+    def test_divergence_detected(self):
+        days = get_working_days(2025, 1)
+        ga = {days[0]: 7.0}
+        task = {days[0]: 8.0}
+        person = gabi_engine.process_with_task_data("pedro.santos", task, "Pedro Santos", ga, 2025, 1)
+        assert any(i["rule"] == "R1" for i in person["issues"])
+
+    def test_empty_task_data(self):
+        days = get_working_days(2025, 1)
+        ga = dict.fromkeys(days, 8.0)
+        person = gabi_engine.process_with_task_data("pedro.santos", {}, "Pedro Santos", ga, 2025, 1)
+        assert person["task_total"] == pytest.approx(0.0)
+        assert any(i["rule"] == "R1" for i in person["issues"])
+
+    def test_returns_dict_with_required_keys(self):
+        person = gabi_engine.process_with_task_data("x", {}, "X", {}, 2025, 6)
+        for key in ("name", "task_id", "days", "issues", "ga_total", "task_total"):
+            assert key in person
