@@ -9,7 +9,7 @@ from datetime import date, timedelta
 # ── Parsers ───────────────────────────────────────────────────────────────────
 
 
-def parse_task(fp: str) -> dict:
+def parse_task(fp: str) -> tuple[dict, dict]:
     from python_calamine import CalamineWorkbook
 
     rows = (
@@ -17,16 +17,18 @@ def parse_task(fp: str) -> dict:
         .get_sheet_by_name("Analítico")
         .to_python(skip_empty_area=False)
     )
-    result = defaultdict(lambda: defaultdict(float))
+    faturado: defaultdict = defaultdict(lambda: defaultdict(float))
+    nao_faturado: defaultdict = defaultdict(lambda: defaultdict(float))
     for row in rows[10:]:
         if len(row) < 9:
             continue
         resp, dt, cod, total = row[0], row[1], row[2], row[8]
-        if not (resp and dt and cod == "FATURADO" and total):
+        if not (resp and dt and cod in ("FATURADO", "NAO_FATURADO") and total):
             continue
         ds = dt.strftime("%d/%m/%Y") if hasattr(dt, "strftime") else str(dt)
-        result[resp][ds] += float(total)
-    return dict(result)
+        target = faturado if cod == "FATURADO" else nao_faturado
+        target[resp][ds] += float(total)
+    return dict(faturado), dict(nao_faturado)
 
 
 def _parse_ga_header(rows: list) -> tuple:
@@ -428,7 +430,7 @@ def _build_person(
 
 def process(task_path: str, ga_paths: list) -> tuple:
     """Returns (persons: list[dict], errors: list[str])."""
-    task_data = parse_task(task_path)
+    task_faturado, task_nf = parse_task(task_path)
     persons = []
     errors = []
 
@@ -439,16 +441,19 @@ def process(task_path: str, ga_paths: list) -> tuple:
             errors.append(f"Erro ao ler arquivo GA: {exc}")
             continue
 
-        task_id = match_name(ga_name, list(task_data.keys()))
+        task_id = match_name(ga_name, list(task_faturado.keys()))
         if not task_id:
             errors.append(
                 f"Nome '{ga_name}' não encontrado no Task. "
-                f"Disponíveis: {', '.join(task_data.keys())}"
+                f"Disponíveis: {', '.join(task_faturado.keys())}"
             )
             continue
 
-        task_daily = task_data.get(task_id, {})
-        issues, mensal_ok, wdays, lim = validate(ga_daily, task_daily, year, month)
+        task_daily = task_faturado.get(task_id, {})
+        task_nf_daily = task_nf.get(task_id, {})
+        issues, mensal_ok, wdays, lim = validate(
+            ga_daily, task_daily, year, month, task_nf=task_nf_daily
+        )
         persons.append(
             _build_person(
                 ga_name,
@@ -461,6 +466,7 @@ def process(task_path: str, ga_paths: list) -> tuple:
                 wdays,
                 lim,
                 mensal_ok,
+                task_nf_daily=task_nf_daily,
             )
         )
 
