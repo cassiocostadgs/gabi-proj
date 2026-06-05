@@ -36,6 +36,7 @@ _QUERY = """
       AND ex.dh_inicio     >= TO_DATE(:inicio, 'DD/MM/YYYY')
       AND ex.dh_inicio     <  TO_DATE(:fim,    'DD/MM/YYYY') + 1
       AND ex.bo_abonado    <> 'S'
+      AND ex.dh_termino    IS NOT NULL
     GROUP BY TRUNC(ex.dh_inicio), os.cd_area
     ORDER BY TRUNC(ex.dh_inicio), os.cd_area
 """
@@ -92,6 +93,8 @@ def get_task_hours(
     faturado: dict[str, float] = {}
     nao_faturado: dict[str, float] = {}
     for row_date, area, horas in rows:
+        if horas is None:
+            continue
         ds = row_date.strftime(_DATE_FMT)
         if area == "FATURADO":
             faturado[ds] = round(faturado.get(ds, 0.0) + float(horas), 2)
