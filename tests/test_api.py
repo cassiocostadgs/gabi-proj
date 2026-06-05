@@ -1,3 +1,4 @@
+from datetime import date
 from unittest.mock import patch
 
 
@@ -388,3 +389,62 @@ class TestValidateEndpoint:
                 headers=auth_headers,
             )
         assert resp.status_code == 200
+
+    def test_oracle_success_returns_person(self, client, auth_headers):
+        mock_person = {"name": "Pedro Santos", "days": []}
+        with patch("main.is_oracle_configured", return_value=True), \
+             patch("main._process_ga_with_oracle", return_value=(mock_person, None)):
+            resp = client.post(
+                "/api/validate",
+                files=self._GA_FILE,
+                data={"start_date": "2025-01-01", "end_date": "2025-01-31"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        assert resp.json()["persons"] == [mock_person]
+
+
+class TestProcessGaWithOracle:
+    """Unit tests for _process_ga_with_oracle — mocks repository and engine."""
+
+    def _call(self, **overrides):
+        import main
+
+        kwargs = {
+            "ga_path": "/tmp/fake.xls",
+            "email": "pedro@db1.com.br",
+            "sd": date(2025, 1, 1),
+            "ed": date(2025, 1, 31),
+            "year": 2025,
+            "month": 1,
+            **overrides,
+        }
+        return main._process_ga_with_oracle(**kwargs)
+
+    def test_parse_ga_error_returns_error_message(self):
+        with patch("gabi_engine.parse_ga", side_effect=ValueError("arquivo inválido")):
+            person, error = self._call()
+        assert person is None
+        assert "arquivo inválido" in error
+
+    def test_get_task_hours_error_returns_error_message(self):
+        with (
+            patch("gabi_engine.parse_ga", return_value=("Pedro Santos", {}, [], [])),
+            patch("repositories.task_repository.responsavel_from_email", return_value="PEDRO.SANTOS"),
+            patch("repositories.task_repository.get_task_hours", side_effect=Exception("DB unavailable")),
+        ):
+            person, error = self._call()
+        assert person is None
+        assert "Task DB" in error
+
+    def test_success_returns_person(self):
+        mock_person = {"name": "Pedro Santos", "days": []}
+        with (
+            patch("gabi_engine.parse_ga", return_value=("Pedro Santos", {}, [], [])),
+            patch("repositories.task_repository.responsavel_from_email", return_value="PEDRO.SANTOS"),
+            patch("repositories.task_repository.get_task_hours", return_value=({}, {})),
+            patch("gabi_engine.process_with_task_data", return_value=mock_person),
+        ):
+            person, error = self._call()
+        assert error is None
+        assert person == mock_person
