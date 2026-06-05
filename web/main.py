@@ -34,7 +34,9 @@ TOKEN_EXPIRE_HOURS = 8
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "users.db"
 TASKS_DIR = BASE_DIR / "tasks"
-STATIC_DIR = BASE_DIR.parent / "frontend" / "dist"
+_FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
+# Fall back to the legacy monolith until frontend/dist is deployed via CI
+STATIC_DIR = _FRONTEND_DIST if _FRONTEND_DIST.exists() else BASE_DIR / "static"
 
 
 def _load_secret_key() -> str:
@@ -136,7 +138,7 @@ def _current_user(token: Annotated[str, Depends(oauth2)]) -> str:
         email: str = payload.get("sub", "")
         if not email:
             raise ValueError
-    except (JWTError, ValueError):
+    except (JWTError, ValueError):  # fmt: skip
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido ou expirado",
