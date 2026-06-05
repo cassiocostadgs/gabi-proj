@@ -1,3 +1,21 @@
+# Credenciais e variáveis de ambiente
+.env
+*.env
+
+# POC com credenciais hardcoded
+poc_oracle.py
+
+# Coverage JS (gerado pelo sonar-scan.sh)
+coverage-js.lcov
+coverage-js-sonar.lcov
+.coverage/
+
+# Frontend build
+frontend/dist/
+frontend/node_modules/
+frontend/playwright-report/
+frontend/.coverage/
+
 # Python
 __pycache__/
 *.pyc
@@ -32,3 +50,6 @@ coverage.xml
 
 # Claude Code
 .claude/
+
+# Protótipos locais
+prototype-*.html

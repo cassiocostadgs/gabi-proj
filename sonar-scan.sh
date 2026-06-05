@@ -12,4 +12,11 @@ if [ ! -f sonar-project.properties ]; then
   exit 1
 fi
 
-sonar-scanner
+# Remove coverage blocks for test files — Sonar excludes them from analysis
+# and would warn about unresolved paths in the lcov report.
+if [ -f coverage-js.lcov ]; then
+  awk '/^SF:tests\//{skip=1} skip && /^end_of_record/{skip=0; next} !skip' \
+    coverage-js.lcov > coverage-js-sonar.lcov
+fi
+
+sonar-scanner -Dsonar.javascript.lcov.reportPaths=coverage-js-sonar.lcov
