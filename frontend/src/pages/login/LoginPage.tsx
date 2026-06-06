@@ -87,138 +87,168 @@ export function LoginPage() {
           style={{ gridTemplateColumns: '1fr 480px', maxWidth: 1360 }}
         >
           {/* ── Brand side ── */}
-          <div className="flex flex-col items-start justify-center px-16">
-            {/* Conteúdo centralizado verticalmente */}
+          <div className="flex flex-col items-start justify-center px-16 pb-12">
             <div className="flex flex-col">
-              {/* Logo — aumentada + hover */}
-              <div
-                className="mb-8 cursor-default"
-                style={{ width: 'fit-content' }}
-                onMouseEnter={(e) => {
-                  const svg = e.currentTarget.querySelector('svg') as SVGSVGElement
-                  const g = svg.querySelector('#lg-cube') as SVGGElement
-                  svg.style.transform = 'scale(1.1) translateY(-4px)'
-                  g.style.filter = 'url(#lg-glow-hover)'
-                }}
-                onMouseLeave={(e) => {
-                  const svg = e.currentTarget.querySelector('svg') as SVGSVGElement
-                  const g = svg.querySelector('#lg-cube') as SVGGElement
-                  svg.style.transform = 'scale(1) translateY(0)'
-                  g.style.filter = 'url(#lg-glow)'
-                }}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 200 200"
-                  width="112"
-                  height="112"
-                  style={{
-                    transition: 'transform .35s cubic-bezier(.34,1.56,.64,1)',
-                    display: 'block',
-                    overflow: 'visible',
+              {/* Logomarca — logo inline com nome + descrição */}
+              <div className="flex items-center gap-6 mb-4">
+                {/* Logo com hover */}
+                <div
+                  className="cursor-default flex-shrink-0"
+                  style={{ width: 'fit-content' }}
+                  onMouseEnter={(e) => {
+                    const svg = e.currentTarget.querySelector('svg') as SVGSVGElement
+                    const g = svg.querySelector('#lg-cube') as SVGGElement
+                    svg.style.transform = 'scale(1.1) translateY(-4px)'
+                    g.style.filter = 'url(#lg-glow-hover)'
+                  }}
+                  onMouseLeave={(e) => {
+                    const svg = e.currentTarget.querySelector('svg') as SVGSVGElement
+                    const g = svg.querySelector('#lg-cube') as SVGGElement
+                    svg.style.transform = 'scale(1) translateY(0)'
+                    g.style.filter = 'url(#lg-glow)'
                   }}
                 >
-                  <defs>
-                    <linearGradient id="lg-side" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" stopColor="#6D28D9" />
-                      <stop offset="100%" stopColor="#4C1D95" />
-                    </linearGradient>
-                    <linearGradient id="lg-top" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#8B5CF6" />
-                      <stop offset="100%" stopColor="#6D28D9" />
-                    </linearGradient>
-                    {/* SVG-native filters: shadow follows cube shape, not element bounding box */}
-                    <filter id="lg-glow" x="-40%" y="-40%" width="180%" height="180%">
-                      <feDropShadow
-                        dx="0"
-                        dy="8"
-                        stdDeviation="14"
-                        floodColor="#6D28D9"
-                        floodOpacity="0.5"
-                      />
-                    </filter>
-                    <filter id="lg-glow-hover" x="-50%" y="-50%" width="200%" height="200%">
-                      <feDropShadow
-                        dx="0"
-                        dy="14"
-                        stdDeviation="22"
-                        floodColor="#6D28D9"
-                        floodOpacity="0.75"
-                      />
-                    </filter>
-                  </defs>
-                  <g
-                    id="lg-cube"
-                    style={{ filter: 'url(#lg-glow)', transition: 'filter .35s ease' }}
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 25 200 155"
+                    width="108"
+                    height="108"
+                    style={{
+                      transition: 'transform .35s cubic-bezier(.34,1.56,.64,1)',
+                      display: 'block',
+                      overflow: 'visible',
+                    }}
                   >
-                    <path d="M 100 40 L 155 70 L 100 100 L 45 70 Z" fill="url(#lg-top)" />
-                    <path d="M 45 70 L 100 100 L 100 160 L 45 130 Z" fill="url(#lg-side)" />
-                    <path
-                      d="M 100 100 L 155 70 L 155 130 L 100 160 Z"
-                      fill="url(#lg-side)"
-                      opacity="0.85"
-                    />
+                    <defs>
+                      <linearGradient id="lg-side" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stopColor="#6D28D9" />
+                        <stop offset="100%" stopColor="#4C1D95" />
+                      </linearGradient>
+                      <linearGradient id="lg-top" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#8B5CF6" />
+                        <stop offset="100%" stopColor="#6D28D9" />
+                      </linearGradient>
+                      {/* SVG-native filters: shadow follows cube shape, not element bounding box */}
+                      <filter id="lg-glow" x="-40%" y="-40%" width="180%" height="180%">
+                        <feDropShadow
+                          dx="0"
+                          dy="8"
+                          stdDeviation="14"
+                          floodColor="#6D28D9"
+                          floodOpacity="0.5"
+                        />
+                      </filter>
+                      <filter id="lg-glow-hover" x="-50%" y="-50%" width="200%" height="200%">
+                        <feDropShadow
+                          dx="0"
+                          dy="14"
+                          stdDeviation="22"
+                          floodColor="#6D28D9"
+                          floodOpacity="0.75"
+                        />
+                      </filter>
+                    </defs>
                     <g
-                      fill="none"
-                      stroke="#F97316"
-                      strokeWidth="9"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                      id="lg-cube"
+                      style={{ filter: 'url(#lg-glow)', transition: 'filter .35s ease' }}
                     >
-                      <path d="M 127.5 85 L 100 70 L 72.5 85 L 72.5 115 L 100 130 L 127.5 115 L 100 100" />
+                      <path d="M 100 40 L 155 70 L 100 100 L 45 70 Z" fill="url(#lg-top)" />
+                      <path d="M 45 70 L 100 100 L 100 160 L 45 130 Z" fill="url(#lg-side)" />
+                      <path
+                        d="M 100 100 L 155 70 L 155 130 L 100 160 Z"
+                        fill="url(#lg-side)"
+                        opacity="0.85"
+                      />
+                      <g
+                        fill="none"
+                        stroke="#F97316"
+                        strokeWidth="9"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M 127.5 85 L 100 70 L 72.5 85 L 72.5 115 L 100 130 L 127.5 115 L 100 100" />
+                      </g>
+                      <circle cx="100" cy="100" r="5" fill="#F97316" />
                     </g>
-                    <circle cx="100" cy="100" r="5" fill="#F97316" />
-                  </g>
-                </svg>
+                  </svg>
+                </div>
+
+                {/* Nome + descrição — ao lado da logo */}
+                <div className="flex flex-col justify-center">
+                  <h1
+                    className="font-extrabold tracking-[-0.05em] leading-[1.0] mb-1.5"
+                    style={{ fontSize: 76, color: 'rgba(255,255,255,.92)' }}
+                  >
+                    GABI
+                  </h1>
+                  <p
+                    style={{
+                      fontSize: 11,
+                      color: 'rgba(255,255,255,.28)',
+                      fontWeight: 500,
+                      letterSpacing: '.06em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Gap Auditor of Billed Input
+                  </p>
+                </div>
               </div>
 
-              {/* Nome */}
+              {/* Acento laranja — fecha bloco de identidade, abre espaço para a mensagem */}
               <div
-                className="mb-1"
+                className="mb-7"
                 style={{
-                  color: 'rgba(255,255,255,.22)',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  letterSpacing: '.14em',
-                  textTransform: 'uppercase',
+                  width: 36,
+                  height: 2,
+                  borderRadius: 2,
+                  background: 'linear-gradient(90deg, #f97316, #fb923c)',
+                  opacity: 0.7,
                 }}
-              >
-                DB1 Group
-              </div>
-              <h1
-                className="font-extrabold tracking-[-0.04em] leading-[1.0] mb-6"
-                style={{ fontSize: 80, color: 'rgba(255,255,255,.92)' }}
-              >
-                G.A.B.I.
-              </h1>
+              />
 
-              {/* Tagline — visível mas não competindo */}
+              {/* Tagline — após o acento */}
               <p
+                className="mb-6"
                 style={{
                   fontSize: 17,
-                  color: 'rgba(255,255,255,.38)',
+                  color: 'rgba(255,255,255,.45)',
                   fontWeight: 300,
                   lineHeight: 1.6,
                   letterSpacing: '-.01em',
                 }}
               >
                 Cada hora,{' '}
-                <span style={{ color: 'rgba(255,255,255,.72)', fontWeight: 400 }}>
+                <span style={{ color: 'rgba(255,255,255,.75)', fontWeight: 400 }}>
                   no lugar certo.
                 </span>
               </p>
 
-              {/* Acento laranja — próximo da tagline */}
-              <div
-                className="mt-6"
-                style={{
-                  width: 28,
-                  height: 2,
-                  borderRadius: 2,
-                  background: 'linear-gradient(90deg, #f97316, #fb923c)',
-                  opacity: 0.75,
-                }}
-              />
+              {/* Chips de contexto */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {[
+                  'Conferência automática',
+                  'Rastreabilidade visual',
+                  'Garantia de consistência',
+                ].map((label) => (
+                  <span
+                    key={label}
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: 'rgba(255,255,255,.28)',
+                      background: 'rgba(255,255,255,.04)',
+                      border: '1px solid rgba(255,255,255,.07)',
+                      borderRadius: 100,
+                      padding: '4px 12px',
+                      letterSpacing: '.02em',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -428,9 +458,20 @@ export function LoginPage() {
                 </button>
               </form>
 
-              <p className="mt-8 text-center text-[11px]" style={{ color: 'rgba(255,255,255,.1)' }}>
-                G.A.B.I. v2 · DB1 Group · Uso interno
-              </p>
+              <div className="mt-8 flex flex-col items-center gap-3">
+                <img
+                  src="/db1-logo.png"
+                  alt="DB1 Group"
+                  style={{
+                    width: 72,
+                    filter: 'brightness(0) invert(1)',
+                    opacity: 0.28,
+                  }}
+                />
+                <p className="text-[11px]" style={{ color: 'rgba(255,255,255,.08)' }}>
+                  GABI v2 · Uso interno
+                </p>
+              </div>
             </div>
           </div>
         </div>
