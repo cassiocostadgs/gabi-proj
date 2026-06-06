@@ -490,6 +490,18 @@ if STATIC_DIR.exists():
         if assets_dir.exists():
             app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
+        # Serve root-level static files (e.g. favicon, logo) before the SPA fallback
+        for _static_file in STATIC_DIR.iterdir():
+            if _static_file.is_file() and _static_file.name != "index.html":
+                _name = _static_file.name
+
+                def _make_route(path: Path):
+                    @app.get(f"/{path.name}", include_in_schema=False)
+                    async def _static_root(p: Path = path):
+                        return FileResponse(p)
+
+                _make_route(_static_file)
+
         @app.get("/{full_path:path}")
         async def spa_fallback(full_path: str):
             return FileResponse(STATIC_DIR / "index.html")
