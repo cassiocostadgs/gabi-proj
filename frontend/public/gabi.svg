@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+  <defs>
+    <linearGradient id="cubeGradSide" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#6D28D9" />
+      <stop offset="100%" stop-color="#4C1D95" />
+    </linearGradient>
+    <linearGradient id="cubeGradTop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8B5CF6" />
+      <stop offset="100%" stop-color="#6D28D9" />
+    </linearGradient>
+  </defs>
+
+  <path d="M 100 40 L 155 70 L 100 100 L 45 70 Z" fill="url(#cubeGradTop)" />
+  <path d="M 45 70 L 100 100 L 100 160 L 45 130 Z" fill="url(#cubeGradSide)" />
+  <path d="M 100 100 L 155 70 L 155 130 L 100 160 Z" fill="url(#cubeGradSide)" opacity="0.85" />
+
+  <g fill="none" stroke="#F97316" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 127.5 85 L 100 70 L 72.5 85 L 72.5 115 L 100 130 L 127.5 115 L 100 100" />
+  </g>
+
+  <circle cx="100" cy="100" r="5" fill="#F97316" />
+</svg>

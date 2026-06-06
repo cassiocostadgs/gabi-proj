@@ -1,6 +1,7 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { LogOut, ClipboardCheck, FileSpreadsheet, Users, User } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
+import { GabiLogo } from './GabiLogo'
 
 function displayName(email: string): string {
   const prefix = email.split('@')[0] ?? email
@@ -37,7 +38,10 @@ export function Layout({ children, title, subtitle, actions }: LayoutProps) {
       <div className="min-h-screen bg-slate-900 flex flex-col sm:flex-row">
         {/* Mobile header */}
         <header className="sm:hidden sticky top-0 z-10 bg-slate-800 border-b border-slate-700 px-5 py-3.5 flex items-center justify-between shrink-0">
-          <span className="text-base font-bold text-blue-400 tracking-tight">G.A.B.I.</span>
+          <div className="flex items-center gap-2">
+            <GabiLogo size={28} />
+            <span className="text-base font-bold text-slate-50 tracking-tight">G.A.B.I.</span>
+          </div>
           <button
             onClick={handleLogout}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-slate-400 border border-slate-600 hover:bg-slate-700 transition-colors"
@@ -49,8 +53,9 @@ export function Layout({ children, title, subtitle, actions }: LayoutProps) {
 
         {/* Sidebar — sm+ */}
         <aside className="hidden sm:flex sm:flex-col w-52 shrink-0 bg-slate-800/30 border-r border-slate-700 min-h-screen">
-          <div className="px-5 py-4 border-b border-slate-700">
-            <span className="text-base font-bold text-blue-400 tracking-tight">G.A.B.I.</span>
+          <div className="px-5 py-4 border-b border-slate-700 flex items-center gap-2">
+            <GabiLogo size={28} />
+            <span className="text-base font-bold text-slate-50 tracking-tight">G.A.B.I.</span>
           </div>
           <nav className="flex-1 py-4 px-3 flex flex-col gap-1">
             {ADMIN_NAV.map(({ to, icon: Icon, label }) => (
@@ -109,11 +114,9 @@ export function Layout({ children, title, subtitle, actions }: LayoutProps) {
     <div className="min-h-screen bg-slate-900">
       <header className="sticky top-0 z-10 bg-slate-800 border-b border-slate-700 px-6 py-3.5 flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <Link
-            to="/validate"
-            className="text-lg font-bold text-blue-400 tracking-tight leading-none"
-          >
-            G.A.B.I.
+          <Link to="/validate" className="flex items-center gap-2 leading-none">
+            <GabiLogo size={28} />
+            <span className="text-lg font-bold text-slate-50 tracking-tight">G.A.B.I.</span>
           </Link>
           {title && <span className="text-slate-400 font-normal text-sm ml-2">— {title}</span>}
           {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}

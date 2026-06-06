@@ -88,3 +88,42 @@
     outline-color: color-mix(in oklch, var(--ring) 50%, transparent);
   }
 }
+
+/* ── Login aurora animations ── */
+@keyframes aurora-drift-1 {
+  from {
+    transform: translate(0, 0) scale(1);
+  }
+  to {
+    transform: translate(60px, 40px) scale(1.08);
+  }
+}
+@keyframes aurora-drift-2 {
+  from {
+    transform: translate(0, 0) scale(1);
+  }
+  to {
+    transform: translate(-50px, -30px) scale(1.12);
+  }
+}
+@keyframes aurora-drift-3 {
+  from {
+    transform: translate(0, 0) scale(1);
+  }
+  to {
+    transform: translate(40px, -50px) scale(0.95);
+  }
+}
+
+.aurora-blob-1 {
+  animation: aurora-drift-1 18s ease-in-out infinite alternate;
+}
+.aurora-blob-2 {
+  animation: aurora-drift-2 22s ease-in-out infinite alternate;
+}
+.aurora-blob-3 {
+  animation: aurora-drift-3 28s ease-in-out infinite alternate;
+}
+.aurora-blob-4 {
+  animation: aurora-drift-1 14s ease-in-out infinite alternate-reverse;
+}

@@ -9,6 +9,10 @@ poc_oracle.py
 coverage-js.lcov
 coverage-js-sonar.lcov
 .coverage/
+.coverage-data
+
+# IDE
+.vscode/
 
 # Frontend build
 frontend/dist/
