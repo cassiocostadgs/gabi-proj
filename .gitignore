@@ -8,8 +8,8 @@ poc_oracle.py
 # Coverage JS (gerado pelo sonar-scan.sh)
 coverage-js.lcov
 coverage-js-sonar.lcov
-.coverage/
-.coverage-data
+.coverage
+.vitest-coverage/
 
 # IDE
 .vscode/
