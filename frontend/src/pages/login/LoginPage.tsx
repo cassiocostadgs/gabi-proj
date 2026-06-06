@@ -95,15 +95,16 @@ export function LoginPage() {
                 className="mb-8 cursor-default"
                 style={{ width: 'fit-content' }}
                 onMouseEnter={(e) => {
-                  const svg = e.currentTarget.querySelector('svg') as SVGElement
+                  const svg = e.currentTarget.querySelector('svg') as SVGSVGElement
+                  const g = svg.querySelector('#lg-cube') as SVGGElement
                   svg.style.transform = 'scale(1.1) translateY(-4px)'
-                  svg.style.filter =
-                    'drop-shadow(0 16px 40px rgba(109,40,217,.7)) drop-shadow(0 0 20px rgba(249,115,22,.3))'
+                  g.style.filter = 'url(#lg-glow-hover)'
                 }}
                 onMouseLeave={(e) => {
-                  const svg = e.currentTarget.querySelector('svg') as SVGElement
+                  const svg = e.currentTarget.querySelector('svg') as SVGSVGElement
+                  const g = svg.querySelector('#lg-cube') as SVGGElement
                   svg.style.transform = 'scale(1) translateY(0)'
-                  svg.style.filter = 'drop-shadow(0 8px 28px rgba(109,40,217,.5))'
+                  g.style.filter = 'url(#lg-glow)'
                 }}
               >
                 <svg
@@ -112,9 +113,9 @@ export function LoginPage() {
                   width="112"
                   height="112"
                   style={{
-                    filter: 'drop-shadow(0 8px 28px rgba(109,40,217,.5))',
-                    transition: 'transform .35s cubic-bezier(.34,1.56,.64,1), filter .35s ease',
+                    transition: 'transform .35s cubic-bezier(.34,1.56,.64,1)',
                     display: 'block',
+                    overflow: 'visible',
                   }}
                 >
                   <defs>
@@ -126,24 +127,48 @@ export function LoginPage() {
                       <stop offset="0%" stopColor="#8B5CF6" />
                       <stop offset="100%" stopColor="#6D28D9" />
                     </linearGradient>
+                    {/* SVG-native filters: shadow follows cube shape, not element bounding box */}
+                    <filter id="lg-glow" x="-40%" y="-40%" width="180%" height="180%">
+                      <feDropShadow
+                        dx="0"
+                        dy="8"
+                        stdDeviation="14"
+                        floodColor="#6D28D9"
+                        floodOpacity="0.5"
+                      />
+                    </filter>
+                    <filter id="lg-glow-hover" x="-50%" y="-50%" width="200%" height="200%">
+                      <feDropShadow
+                        dx="0"
+                        dy="14"
+                        stdDeviation="22"
+                        floodColor="#6D28D9"
+                        floodOpacity="0.75"
+                      />
+                    </filter>
                   </defs>
-                  <path d="M 100 40 L 155 70 L 100 100 L 45 70 Z" fill="url(#lg-top)" />
-                  <path d="M 45 70 L 100 100 L 100 160 L 45 130 Z" fill="url(#lg-side)" />
-                  <path
-                    d="M 100 100 L 155 70 L 155 130 L 100 160 Z"
-                    fill="url(#lg-side)"
-                    opacity="0.85"
-                  />
                   <g
-                    fill="none"
-                    stroke="#F97316"
-                    strokeWidth="9"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                    id="lg-cube"
+                    style={{ filter: 'url(#lg-glow)', transition: 'filter .35s ease' }}
                   >
-                    <path d="M 127.5 85 L 100 70 L 72.5 85 L 72.5 115 L 100 130 L 127.5 115 L 100 100" />
+                    <path d="M 100 40 L 155 70 L 100 100 L 45 70 Z" fill="url(#lg-top)" />
+                    <path d="M 45 70 L 100 100 L 100 160 L 45 130 Z" fill="url(#lg-side)" />
+                    <path
+                      d="M 100 100 L 155 70 L 155 130 L 100 160 Z"
+                      fill="url(#lg-side)"
+                      opacity="0.85"
+                    />
+                    <g
+                      fill="none"
+                      stroke="#F97316"
+                      strokeWidth="9"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M 127.5 85 L 100 70 L 72.5 85 L 72.5 115 L 100 130 L 127.5 115 L 100 100" />
+                    </g>
+                    <circle cx="100" cy="100" r="5" fill="#F97316" />
                   </g>
-                  <circle cx="100" cy="100" r="5" fill="#F97316" />
                 </svg>
               </div>
 
