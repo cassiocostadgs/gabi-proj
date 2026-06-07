@@ -495,10 +495,12 @@ if STATIC_DIR.exists():
             if _static_file.is_file() and _static_file.name != "index.html":
                 _name = _static_file.name
 
-                def _make_route(path: Path):
-                    @app.get(f"/{path.name}", include_in_schema=False)
-                    async def _static_root(p: Path = path):
-                        return FileResponse(p)
+                def _make_route(static_path: Path):
+                    route = "/" + static_path.name
+
+                    @app.get(route, include_in_schema=False)
+                    async def _static_root():
+                        return FileResponse(static_path)
 
                 _make_route(_static_file)
 
