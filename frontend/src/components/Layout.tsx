@@ -40,7 +40,7 @@ export function Layout({ children, title, subtitle, actions }: LayoutProps) {
         <header className="sm:hidden sticky top-0 z-10 bg-slate-800 border-b border-slate-700 px-5 py-3.5 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <GabiLogo size={28} />
-            <span className="text-base font-bold text-slate-50 tracking-tight">G.A.B.I.</span>
+            <span className="text-base font-bold text-slate-50 tracking-tight">GABI</span>
           </div>
           <button
             onClick={handleLogout}
@@ -55,7 +55,7 @@ export function Layout({ children, title, subtitle, actions }: LayoutProps) {
         <aside className="hidden sm:flex sm:flex-col w-52 shrink-0 bg-slate-800/30 border-r border-slate-700 min-h-screen">
           <div className="px-5 py-4 border-b border-slate-700 flex items-center gap-2">
             <GabiLogo size={28} />
-            <span className="text-base font-bold text-slate-50 tracking-tight">G.A.B.I.</span>
+            <span className="text-base font-bold text-slate-50 tracking-tight">GABI</span>
           </div>
           <nav className="flex-1 py-4 px-3 flex flex-col gap-1">
             {ADMIN_NAV.map(({ to, icon: Icon, label }) => (
@@ -116,7 +116,7 @@ export function Layout({ children, title, subtitle, actions }: LayoutProps) {
         <div>
           <Link to="/validate" className="flex items-center gap-2 leading-none">
             <GabiLogo size={28} />
-            <span className="text-lg font-bold text-slate-50 tracking-tight">G.A.B.I.</span>
+            <span className="text-lg font-bold text-slate-50 tracking-tight">GABI</span>
           </Link>
           {title && <span className="text-slate-400 font-normal text-sm ml-2">— {title}</span>}
           {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
