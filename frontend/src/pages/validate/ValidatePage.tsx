@@ -271,21 +271,9 @@ export function ValidatePage() {
 
           {/* Drop zone */}
           <div>
-            {/* Label row with DB status */}
-            <div className="flex items-center justify-between mb-1.5">
+            {/* Label */}
+            <div className="mb-1.5">
               <p className="text-xs font-medium text-slate-400">Arquivo GA</p>
-              <div
-                className={`flex items-center gap-1.5 text-xs ${oracleAvailable ? 'text-slate-400' : 'text-amber-400'}`}
-              >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                    oracleAvailable
-                      ? 'bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.18)]'
-                      : 'bg-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.18)]'
-                  }`}
-                />
-                {oracleAvailable ? 'Task DB · conectado' : 'Task DB · indisponível'}
-              </div>
             </div>
 
             {/* Dropzone */}

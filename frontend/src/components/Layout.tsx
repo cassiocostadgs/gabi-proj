@@ -1,7 +1,9 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { LogOut, ClipboardCheck, FileSpreadsheet, Users, User } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
 import { GabiLogo } from './GabiLogo'
+import { validateService } from '../services/validate.service'
 
 function displayName(email: string): string {
   const prefix = email.split('@')[0] ?? email
@@ -32,6 +34,12 @@ export function Layout({ children, title, subtitle, actions }: LayoutProps) {
     logout()
     navigate('/login')
   }
+
+  const { data: oracleAvailable = false } = useQuery({
+    queryKey: ['oracle-status'],
+    queryFn: validateService.getOracleStatus,
+    refetchInterval: 30_000,
+  })
 
   if (user?.is_admin) {
     return (
@@ -112,17 +120,41 @@ export function Layout({ children, title, subtitle, actions }: LayoutProps) {
 
   return (
     <div className="min-h-screen bg-slate-900">
-      <header className="sticky top-0 z-10 bg-slate-800 border-b border-slate-700 px-6 py-3.5 flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <Link to="/validate" className="flex items-center gap-2 leading-none">
-            <GabiLogo size={28} />
-            <span className="text-lg font-bold text-slate-50 tracking-tight">GABI</span>
-          </Link>
-          {title && <span className="text-slate-400 font-normal text-sm ml-2">— {title}</span>}
-          {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+      <header className="sticky top-0 z-10 bg-slate-800 border-b border-slate-700 px-6 h-16 flex items-center justify-between gap-4">
+        {/* Logo */}
+        <Link to="/validate" className="flex items-center gap-3 leading-none shrink-0">
+          <GabiLogo size={32} />
+          <div className="flex flex-col gap-px">
+            <span className="text-sm font-bold tracking-wide text-slate-50 leading-none">GABI</span>
+            <span className="text-[10px] text-slate-500 leading-none tracking-wide">
+              Gap Auditor of Billed Input
+            </span>
+          </div>
+        </Link>
+
+        {/* DB status pill — center */}
+        <div className="flex-1 flex justify-center">
+          <div
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium transition-all ${
+              oracleAvailable
+                ? 'border-emerald-500/25 bg-emerald-500/6 text-slate-400'
+                : 'border-amber-500/28 bg-amber-500/6 text-amber-400'
+            }`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                oracleAvailable
+                  ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.22)]'
+                  : 'bg-amber-400 shadow-[0_0_0_2px_rgba(234,179,8,0.22)]'
+              }`}
+            />
+            {oracleAvailable ? 'Task DB · conectado' : 'Task DB · indisponível'}
+          </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {actions}
+
+        {/* Actions + User + Sair */}
+        <div className="flex items-center gap-3 shrink-0">
+          {actions && <div className="flex items-center gap-2">{actions}</div>}
           {user?.email && (
             <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-slate-500">
               <User size={12} />
@@ -131,7 +163,7 @@ export function Layout({ children, title, subtitle, actions }: LayoutProps) {
           )}
           <button
             onClick={handleLogout}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-slate-400 border border-slate-600 hover:bg-slate-700 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-slate-400 border border-slate-700 hover:bg-slate-700 hover:text-slate-200 transition-colors"
           >
             <LogOut size={13} />
             Sair
