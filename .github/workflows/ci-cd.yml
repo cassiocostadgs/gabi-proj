@@ -89,13 +89,29 @@ jobs:
 
       - name: Pull + restart
         uses: appleboy/ssh-action@v1
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_PORT: ${{ secrets.ORACLE_PORT }}
+          ORACLE_SID: ${{ secrets.ORACLE_SID }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
+          ORACLE_PASSWORD: ${{ secrets.ORACLE_PASSWORD }}
+          ORACLE_TASK_PROJECT: ${{ secrets.ORACLE_TASK_PROJECT }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: ORACLE_HOST,ORACLE_PORT,ORACLE_SID,ORACLE_USER,ORACLE_PASSWORD,ORACLE_TASK_PROJECT
           script: |
             set -e
             cd /opt/gabi
+            printf '%s\n' \
+              "ORACLE_HOST=${ORACLE_HOST}" \
+              "ORACLE_PORT=${ORACLE_PORT}" \
+              "ORACLE_SID=${ORACLE_SID}" \
+              "ORACLE_USER=${ORACLE_USER}" \
+              "ORACLE_PASSWORD=${ORACLE_PASSWORD}" \
+              "ORACLE_TASK_PROJECT=${ORACLE_TASK_PROJECT}" \
+              > web/.env
             git fetch git@github-gabi:tiagohlatki-db1/gabi.git main
             git reset --hard FETCH_HEAD
             source venv/bin/activate
