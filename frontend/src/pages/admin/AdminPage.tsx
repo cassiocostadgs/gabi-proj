@@ -11,6 +11,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Pencil,
+  ToggleLeft,
+  ToggleRight,
+  Check,
+  X,
 } from 'lucide-react'
 import { Layout } from '../../components/Layout'
 import { Spinner } from '../../components/Spinner'
@@ -350,6 +354,7 @@ function UsersSection() {
   const [password, setPassword] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
   const [formError, setFormError] = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['admin-users'],
@@ -372,9 +377,17 @@ function UsersSection() {
     },
   })
 
+  const toggleMutation = useMutation({
+    mutationFn: (id: number) => adminService.toggleUser(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+  })
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) => adminService.deleteUser(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+    onSuccess: () => {
+      setConfirmDeleteId(null)
+      qc.invalidateQueries({ queryKey: ['admin-users'] })
+    },
   })
 
   const handleSubmit = (e: FormEvent) => {
@@ -478,15 +491,50 @@ function UsersSection() {
                 {!u.is_active && <span className="ml-2 text-slate-600">· inativo</span>}
                 <p className="text-slate-600 mt-0.5">{fmtDatetime(u.created_at)}</p>
               </div>
-              {u.is_active && (
+              <div className="flex items-center gap-2 shrink-0 ml-3">
                 <button
-                  onClick={() => deleteMutation.mutate(u.id)}
-                  disabled={deleteMutation.isPending}
-                  className="text-slate-600 hover:text-red-400 transition-colors"
+                  onClick={() => toggleMutation.mutate(u.id)}
+                  disabled={toggleMutation.isPending || deleteMutation.isPending}
+                  title={u.is_active ? 'Desativar usuário' : 'Ativar usuário'}
+                  className="transition-colors"
                 >
-                  <Trash2 size={14} />
+                  {u.is_active ? (
+                    <ToggleRight size={20} className="text-green-500 hover:text-green-400" />
+                  ) : (
+                    <ToggleLeft size={20} className="text-slate-600 hover:text-slate-400" />
+                  )}
                 </button>
-              )}
+
+                {confirmDeleteId === u.id ? (
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-slate-500">Excluir?</span>
+                    <button
+                      onClick={() => deleteMutation.mutate(u.id)}
+                      disabled={deleteMutation.isPending}
+                      title="Confirmar exclusão"
+                      className="text-red-400 hover:text-red-300 transition-colors"
+                    >
+                      <Check size={13} />
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteId(null)}
+                      title="Cancelar"
+                      className="text-slate-600 hover:text-slate-400 transition-colors"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDeleteId(u.id)}
+                    disabled={deleteMutation.isPending || toggleMutation.isPending}
+                    title="Excluir usuário"
+                    className="text-slate-600 hover:text-red-400 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>

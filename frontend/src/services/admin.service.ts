@@ -11,6 +11,10 @@ export const adminService = {
     await api.post('/api/admin/users', { email, password, is_admin: isAdmin })
   },
 
+  toggleUser: async (userId: number): Promise<void> => {
+    await api.patch(`/api/admin/users/${userId}/toggle`)
+  },
+
   deleteUser: async (userId: number): Promise<void> => {
     await api.delete(`/api/admin/users/${userId}`)
   },

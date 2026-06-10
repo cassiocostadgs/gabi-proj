@@ -132,6 +132,8 @@ class TestAdminUsers:
         resp = client.delete(f"/api/admin/users/{user_id}", headers=auth_headers)
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
+        remaining = client.get("/api/admin/users", headers=auth_headers).json()["users"]
+        assert not any(u["email"] == "todelete@db1.com.br" for u in remaining)
 
     def test_delete_self_returns_400(self, client, auth_headers):
         users = client.get("/api/admin/users", headers=auth_headers).json()["users"]
@@ -140,6 +142,34 @@ class TestAdminUsers:
 
     def test_delete_not_found(self, client, auth_headers):
         assert client.delete("/api/admin/users/9999", headers=auth_headers).status_code == 404
+
+    def test_toggle_deactivates_active_user(self, client, auth_headers):
+        self._create(client, auth_headers, email="totoggle@db1.com.br")
+        users = client.get("/api/admin/users", headers=auth_headers).json()["users"]
+        user_id = next(u["id"] for u in users if u["email"] == "totoggle@db1.com.br")
+        resp = client.patch(f"/api/admin/users/{user_id}/toggle", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        assert resp.json()["is_active"] is False
+        users_after = client.get("/api/admin/users", headers=auth_headers).json()["users"]
+        assert not next(u for u in users_after if u["id"] == user_id)["is_active"]
+
+    def test_toggle_activates_inactive_user(self, client, auth_headers):
+        self._create(client, auth_headers, email="totoggle2@db1.com.br")
+        users = client.get("/api/admin/users", headers=auth_headers).json()["users"]
+        user_id = next(u["id"] for u in users if u["email"] == "totoggle2@db1.com.br")
+        client.patch(f"/api/admin/users/{user_id}/toggle", headers=auth_headers)
+        resp = client.patch(f"/api/admin/users/{user_id}/toggle", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["is_active"] is True
+
+    def test_toggle_self_returns_400(self, client, auth_headers):
+        users = client.get("/api/admin/users", headers=auth_headers).json()["users"]
+        admin_id = next(u["id"] for u in users if u["email"] == "tiagohlatki@db1.com.br")
+        assert client.patch(f"/api/admin/users/{admin_id}/toggle", headers=auth_headers).status_code == 400
+
+    def test_toggle_not_found(self, client, auth_headers):
+        assert client.patch("/api/admin/users/9999/toggle", headers=auth_headers).status_code == 404
 
 
 # ── Task status (public) ──────────────────────────────────────────────────────

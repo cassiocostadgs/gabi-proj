@@ -250,6 +250,25 @@ async def admin_list_users(_: AdminUser):
     return {"users": [dict(r) for r in rows]}
 
 
+@app.patch(
+    "/api/admin/users/{user_id}/toggle",
+    responses={
+        404: {"description": "Usuário não encontrado"},
+        400: {"description": "Não é possível alterar o próprio usuário"},
+    },
+)
+async def admin_toggle_user(user_id: int, admin_email: AdminUser):
+    with _db() as conn:
+        row = conn.execute("SELECT email, is_active FROM users WHERE id=?", (user_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        if row["email"] == admin_email:
+            raise HTTPException(status_code=400, detail="Não é possível alterar o próprio usuário")
+        new_active = 0 if row["is_active"] else 1
+        conn.execute("UPDATE users SET is_active=? WHERE id=?", (new_active, user_id))
+    return {"ok": True, "is_active": bool(new_active)}
+
+
 @app.delete(
     "/api/admin/users/{user_id}",
     responses={
@@ -264,7 +283,7 @@ async def admin_delete_user(user_id: int, admin_email: AdminUser):
             raise HTTPException(status_code=404, detail="Usuário não encontrado")
         if row["email"] == admin_email:
             raise HTTPException(status_code=400, detail="Não é possível remover o próprio usuário")
-        conn.execute("UPDATE users SET is_active=0 WHERE id=?", (user_id,))
+        conn.execute("DELETE FROM users WHERE id=?", (user_id,))
     return {"ok": True}
 
 
