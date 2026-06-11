@@ -84,3 +84,72 @@ export interface ValidationResult {
   persons: Person[]
   errors: string[]
 }
+
+export interface ResultsNavigationState extends ValidationResult {
+  competencia?: string
+}
+
+// ── Billing / Approval ────────────────────────────────────────────────────────
+
+export interface BillingRate {
+  profile: string
+  valor_hora: number
+}
+
+export interface TeamMember {
+  id: number
+  user_email: string
+  cpf: string
+  subcontrato: string
+  profile: string
+  is_active: boolean
+  created_at: string
+}
+
+export type SubmissionStatus = 'pending' | 'approved' | 'rejected'
+
+export interface Submission {
+  id: number
+  user_email: string
+  competencia: string
+  nome_profissional: string
+  task_id: string
+  horas_task: number
+  ga_filename: string
+  status: SubmissionStatus
+  rejection_reason: string | null
+  submitted_at: string
+  reviewed_at: string | null
+  reviewed_by: string | null
+}
+
+export interface SubmissionStatusResponse {
+  submitted: boolean
+  id?: number
+  status?: SubmissionStatus
+  rejection_reason?: string | null
+  submitted_at?: string
+}
+
+export interface SubmissionDetail extends Omit<Submission, 'user_email'> {
+  snapshot: Person | null
+  snapshot_source: 'approved' | 'original' | null
+}
+
+export interface CompetenciaSummary {
+  competencia: string
+  total_submitted: number
+  total_approved: number
+  total_pending: number
+  total_rejected: number
+}
+
+export interface SubmissionsSummary {
+  total_members: number
+  competencias: CompetenciaSummary[]
+}
+
+export interface AppSettings {
+  billing_cnpj: string
+  [key: string]: string
+}
