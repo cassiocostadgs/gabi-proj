@@ -1,9 +1,15 @@
+import { useId } from 'react'
+
 interface GabiLogoProps {
   size?: number
   className?: string
 }
 
 export function GabiLogo({ size = 64, className }: GabiLogoProps) {
+  const uid = useId()
+  const gradSide = `${uid}-side`
+  const gradTop = `${uid}-top`
+
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -14,21 +20,21 @@ export function GabiLogo({ size = 64, className }: GabiLogoProps) {
       aria-label="G.A.B.I. logo"
     >
       <defs>
-        <linearGradient id="gabiCubeGradSide" x1="0%" y1="0%" x2="0%" y2="100%">
+        <linearGradient id={gradSide} x1="0%" y1="0%" x2="0%" y2="100%">
           <stop offset="0%" stopColor="#6D28D9" />
           <stop offset="100%" stopColor="#4C1D95" />
         </linearGradient>
-        <linearGradient id="gabiCubeGradTop" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id={gradTop} x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#8B5CF6" />
           <stop offset="100%" stopColor="#6D28D9" />
         </linearGradient>
       </defs>
 
-      <path d="M 100 40 L 155 70 L 100 100 L 45 70 Z" fill="url(#gabiCubeGradTop)" />
-      <path d="M 45 70 L 100 100 L 100 160 L 45 130 Z" fill="url(#gabiCubeGradSide)" />
+      <path d="M 100 40 L 155 70 L 100 100 L 45 70 Z" fill={`url(#${gradTop})`} />
+      <path d="M 45 70 L 100 100 L 100 160 L 45 130 Z" fill={`url(#${gradSide})`} />
       <path
         d="M 100 100 L 155 70 L 155 130 L 100 160 Z"
-        fill="url(#gabiCubeGradSide)"
+        fill={`url(#${gradSide})`}
         opacity="0.85"
       />
 

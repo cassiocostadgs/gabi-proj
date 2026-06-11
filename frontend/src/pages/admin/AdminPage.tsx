@@ -20,6 +20,9 @@ import { Layout } from '../../components/Layout'
 import { Spinner } from '../../components/Spinner'
 import { adminService } from '../../services/admin.service'
 import { competenciaLabel, fmtDatetime } from '../../lib/format'
+import { EquipeSection } from './sections/EquipeSection'
+import { AprovacoesSection } from './sections/AprovacoesSection'
+import { ConfiguracoesSection } from './sections/ConfiguracoesSection'
 import axios from 'axios'
 
 const MONTHS_PT: Record<string, string> = {
@@ -546,11 +549,19 @@ function UsersSection() {
 export function AdminPage() {
   const { section } = useParams<{ section: string }>()
 
+  const content = (() => {
+    switch (section) {
+      case 'users':        return <UsersSection />
+      case 'team':         return <EquipeSection />
+      case 'approvals':    return <AprovacoesSection />
+      case 'settings':     return <ConfiguracoesSection />
+      default:             return <TaskSection />
+    }
+  })()
+
   return (
     <Layout>
-      <div className="max-w-2xl px-6 py-7">
-        {section === 'users' ? <UsersSection /> : <TaskSection />}
-      </div>
+      <div className="max-w-2xl px-6 py-7">{content}</div>
     </Layout>
   )
 }

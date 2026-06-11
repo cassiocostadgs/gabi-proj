@@ -14,6 +14,7 @@ import { Layout } from '../../components/Layout'
 import { Spinner } from '../../components/Spinner'
 import { validateService } from '../../services/validate.service'
 import { competenciaLabel } from '../../lib/format'
+import { pendingSubmission } from '../../lib/pendingSubmission'
 import type { Competencia, TaskStatus } from '../../types'
 import axios from 'axios'
 
@@ -177,7 +178,12 @@ export function ValidatePage() {
   const mutation = useMutation({
     mutationFn: () =>
       validateService.validate(gaFiles, startDate, endDate, useFileFallback, selectedCompetencia),
-    onSuccess: (data) => navigate('/results', { state: data }),
+    onSuccess: (data) => {
+      if (gaFiles[0] && selectedCompetencia) {
+        pendingSubmission.set(gaFiles[0], selectedCompetencia)
+      }
+      navigate('/results', { state: { ...data, competencia: selectedCompetencia } })
+    },
     onError: (err: unknown) => {
       if (axios.isAxiosError(err)) {
         const detail = err.response?.data?.detail
@@ -263,7 +269,25 @@ export function ValidatePage() {
         <div className="w-full max-w-[520px] flex flex-col gap-4">
           {/* Header */}
           <div className="mb-1">
-            <h1 className="text-lg font-semibold text-slate-100">Validar apontamentos</h1>
+            <div className="flex items-center justify-between gap-3">
+              <h1 className="text-lg font-semibold text-slate-100">Validar apontamentos</h1>
+              <div
+                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs font-medium shrink-0 ${
+                  oracleAvailable
+                    ? 'border-emerald-500/25 bg-emerald-500/6 text-slate-400'
+                    : 'border-amber-500/30 bg-amber-500/8 text-amber-400'
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    oracleAvailable
+                      ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.22)]'
+                      : 'bg-amber-400 shadow-[0_0_0_2px_rgba(234,179,8,0.22)]'
+                  }`}
+                />
+                {oracleAvailable ? 'Task DB · conectado' : 'Task DB · indisponível'}
+              </div>
+            </div>
             <p className="text-sm text-slate-500 mt-1">
               Envie o arquivo GA para cruzar com as horas faturadas no Task.
             </p>
