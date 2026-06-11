@@ -434,6 +434,268 @@ class TestValidateEndpoint:
         assert resp.json()["persons"] == [mock_person]
 
 
+# ── Settings ──────────────────────────────────────────────────────────────────
+
+class TestSettings:
+    def test_get_settings(self, client, auth_headers):
+        resp = client.get("/api/admin/settings", headers=auth_headers)
+        assert resp.status_code == 200
+        assert "billing_cnpj" in resp.json()
+
+    def test_update_setting(self, client, auth_headers):
+        resp = client.put(
+            "/api/admin/settings/billing_cnpj",
+            json={"value": "12.345.678/0001-99"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        assert client.get("/api/admin/settings", headers=auth_headers).json()["billing_cnpj"] == "12.345.678/0001-99"
+
+    def test_requires_admin(self, client, auth_headers):
+        client.post("/api/admin/users", json={"email": "reg@db1.com.br", "password": "senha123"}, headers=auth_headers)
+        token = client.post("/auth/login", data={"username": "reg@db1.com.br", "password": "senha123"}).json()["access_token"]
+        h = {"Authorization": f"Bearer {token}"}
+        assert client.get("/api/admin/settings", headers=h).status_code == 403
+
+
+# ── Billing rates ──────────────────────────────────────────────────────────────
+
+class TestBillingRates:
+    def _create(self, client, auth_headers, profile="pleno", valor=100.0):
+        return client.post(
+            "/api/admin/billing-rates",
+            json={"profile": profile, "valor_hora": valor},
+            headers=auth_headers,
+        )
+
+    def test_create_and_list(self, client, auth_headers):
+        assert self._create(client, auth_headers).status_code == 201
+        rates = client.get("/api/admin/billing-rates", headers=auth_headers).json()["rates"]
+        assert any(r["profile"] == "pleno" for r in rates)
+
+    def test_duplicate_returns_409(self, client, auth_headers):
+        self._create(client, auth_headers)
+        assert self._create(client, auth_headers).status_code == 409
+
+    def test_update(self, client, auth_headers):
+        self._create(client, auth_headers)
+        resp = client.put("/api/admin/billing-rates/pleno", json={"valor_hora": 200.0}, headers=auth_headers)
+        assert resp.status_code == 200
+        rates = client.get("/api/admin/billing-rates", headers=auth_headers).json()["rates"]
+        assert next(r for r in rates if r["profile"] == "pleno")["valor_hora"] == 200.0
+
+    def test_update_not_found(self, client, auth_headers):
+        assert client.put("/api/admin/billing-rates/inexistente", json={"valor_hora": 1.0}, headers=auth_headers).status_code == 404
+
+    def test_delete(self, client, auth_headers):
+        self._create(client, auth_headers)
+        assert client.delete("/api/admin/billing-rates/pleno", headers=auth_headers).status_code == 200
+        assert client.get("/api/admin/billing-rates", headers=auth_headers).json()["rates"] == []
+
+    def test_delete_not_found(self, client, auth_headers):
+        assert client.delete("/api/admin/billing-rates/ghost", headers=auth_headers).status_code == 404
+
+    def test_requires_admin(self, client, auth_headers):
+        client.post("/api/admin/users", json={"email": "reg2@db1.com.br", "password": "senha123"}, headers=auth_headers)
+        token = client.post("/auth/login", data={"username": "reg2@db1.com.br", "password": "senha123"}).json()["access_token"]
+        h = {"Authorization": f"Bearer {token}"}
+        assert client.get("/api/admin/billing-rates", headers=h).status_code == 403
+
+
+# ── Team members ───────────────────────────────────────────────────────────────
+
+class TestTeamMembers:
+    def _setup(self, client, auth_headers):
+        """Create user + billing rate needed by most tests."""
+        client.post("/api/admin/users", json={"email": "dev@db1.com.br", "password": "senha123"}, headers=auth_headers)
+        client.post("/api/admin/billing-rates", json={"profile": "pleno", "valor_hora": 180.0}, headers=auth_headers)
+
+    def _create_member(self, client, auth_headers):
+        return client.post(
+            "/api/admin/team",
+            json={"user_email": "dev@db1.com.br", "cpf": "111.222.333-44", "subcontrato": "SUB 01", "profile": "pleno"},
+            headers=auth_headers,
+        )
+
+    def test_create_and_list(self, client, auth_headers):
+        self._setup(client, auth_headers)
+        assert self._create_member(client, auth_headers).status_code == 201
+        members = client.get("/api/admin/team", headers=auth_headers).json()["members"]
+        assert any(m["user_email"] == "dev@db1.com.br" for m in members)
+
+    def test_create_user_not_found(self, client, auth_headers):
+        client.post("/api/admin/billing-rates", json={"profile": "pleno", "valor_hora": 180.0}, headers=auth_headers)
+        resp = client.post(
+            "/api/admin/team",
+            json={"user_email": "ghost@db1.com.br", "cpf": "000", "subcontrato": "SUB X", "profile": "pleno"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+
+    def test_create_profile_not_found(self, client, auth_headers):
+        client.post("/api/admin/users", json={"email": "dev@db1.com.br", "password": "senha123"}, headers=auth_headers)
+        resp = client.post(
+            "/api/admin/team",
+            json={"user_email": "dev@db1.com.br", "cpf": "000", "subcontrato": "SUB X", "profile": "inexistente"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+
+    def test_duplicate_returns_409(self, client, auth_headers):
+        self._setup(client, auth_headers)
+        self._create_member(client, auth_headers)
+        assert self._create_member(client, auth_headers).status_code == 409
+
+    def test_update(self, client, auth_headers):
+        self._setup(client, auth_headers)
+        self._create_member(client, auth_headers)
+        member_id = client.get("/api/admin/team", headers=auth_headers).json()["members"][0]["id"]
+        resp = client.put(
+            f"/api/admin/team/{member_id}",
+            json={"cpf": "999.888.777-66", "subcontrato": "SUB 02", "profile": "pleno", "is_active": True},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+
+    def test_delete(self, client, auth_headers):
+        self._setup(client, auth_headers)
+        self._create_member(client, auth_headers)
+        member_id = client.get("/api/admin/team", headers=auth_headers).json()["members"][0]["id"]
+        assert client.delete(f"/api/admin/team/{member_id}", headers=auth_headers).status_code == 200
+        assert client.get("/api/admin/team", headers=auth_headers).json()["members"] == []
+
+    def test_delete_not_found(self, client, auth_headers):
+        assert client.delete("/api/admin/team/9999", headers=auth_headers).status_code == 404
+
+
+# ── Submissions ────────────────────────────────────────────────────────────────
+
+class TestSubmissions:
+    _GA = [("ga", ("ga.xls", b"fake", "application/octet-stream"))]
+
+    def _submit(self, client, headers, competencia="2026-05"):
+        return client.post(
+            "/api/submissions",
+            files=self._GA,
+            data={
+                "competencia": competencia,
+                "nome_profissional": "Pedro Santos",
+                "task_id": "PEDRO.SANTOS",
+                "horas_task": "159.98",
+                "snapshot": '{"name": "Pedro Santos"}',
+            },
+            headers=headers,
+        )
+
+    def test_submit_creates_pending(self, client, auth_headers):
+        resp = self._submit(client, auth_headers)
+        assert resp.status_code == 201
+        status = client.get("/api/submissions/status", params={"competencia": "2026-05"}, headers=auth_headers).json()
+        assert status["submitted"] is True
+        assert status["status"] == "pending"
+
+    def test_resubmit_overwrites(self, client, auth_headers):
+        self._submit(client, auth_headers)
+        self._submit(client, auth_headers)
+        import main
+        with main._db() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM ga_submissions").fetchone()[0]
+        assert count == 1
+
+    def test_status_not_submitted(self, client, auth_headers):
+        resp = client.get("/api/submissions/status", params={"competencia": "2026-05"}, headers=auth_headers)
+        assert resp.json()["submitted"] is False
+
+    def test_requires_auth(self, client):
+        assert client.post("/api/submissions", files=self._GA, data={"competencia": "2026-05", "nome_profissional": "X", "task_id": "X", "horas_task": "1.0", "snapshot": "{}"}).status_code == 401
+
+    def test_admin_list_empty(self, client, auth_headers):
+        resp = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["submissions"] == []
+
+    def test_admin_list_after_submit(self, client, auth_headers):
+        self._submit(client, auth_headers)
+        subs = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"]
+        assert len(subs) == 1
+        assert subs[0]["status"] == "pending"
+
+    def test_admin_summary(self, client, auth_headers):
+        self._submit(client, auth_headers)
+        data = client.get("/api/admin/submissions/summary", headers=auth_headers).json()
+        assert "total_members" in data
+        assert data["competencias"][0]["competencia"] == "2026-05"
+
+    def test_approve(self, client, auth_headers):
+        self._submit(client, auth_headers)
+        sub_id = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"][0]["id"]
+        resp = client.patch(f"/api/admin/submissions/{sub_id}/approve", headers=auth_headers)
+        assert resp.status_code == 200
+        subs = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"]
+        assert subs[0]["status"] == "approved"
+
+    def test_reject(self, client, auth_headers):
+        self._submit(client, auth_headers)
+        sub_id = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"][0]["id"]
+        resp = client.patch(f"/api/admin/submissions/{sub_id}/reject", json={"reason": "GA incorreto"}, headers=auth_headers)
+        assert resp.status_code == 200
+        subs = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"]
+        assert subs[0]["status"] == "rejected"
+        assert subs[0]["rejection_reason"] == "GA incorreto"
+
+    def test_approve_not_found(self, client, auth_headers):
+        assert client.patch("/api/admin/submissions/9999/approve", headers=auth_headers).status_code == 404
+
+    def test_reject_not_found(self, client, auth_headers):
+        assert client.patch("/api/admin/submissions/9999/reject", json={"reason": ""}, headers=auth_headers).status_code == 404
+
+    def test_rerun_not_found(self, client, auth_headers):
+        assert client.post("/api/admin/submissions/9999/rerun", headers=auth_headers).status_code == 404
+
+    def test_rerun_file_mode(self, client, auth_headers):
+        from unittest.mock import patch
+        self._submit(client, auth_headers)
+        sub_id = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"][0]["id"]
+        mock_person = {"name": "Pedro Santos", "task_total": 160.0, "days": []}
+        with patch("main.is_oracle_configured", return_value=False), \
+             patch("main._run_file", return_value=([mock_person], [])):
+            resp = client.post(f"/api/admin/submissions/{sub_id}/rerun", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["horas_task"] == 160.0
+        subs = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"]
+        assert subs[0]["status"] == "pending"
+        assert subs[0]["horas_task"] == 160.0
+
+    def test_rerun_file_mode_no_persons(self, client, auth_headers):
+        from unittest.mock import patch
+        self._submit(client, auth_headers)
+        sub_id = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"][0]["id"]
+        with patch("main.is_oracle_configured", return_value=False), \
+             patch("main._run_file", return_value=([], ["Pessoa não encontrada"])):
+            resp = client.post(f"/api/admin/submissions/{sub_id}/rerun", headers=auth_headers)
+        assert resp.status_code == 422
+
+    def test_export_no_approved(self, client, auth_headers):
+        assert client.get("/api/admin/billing/2026-05/export", headers=auth_headers).status_code == 404
+
+    def test_export_approved(self, client, auth_headers):
+        # Setup team member + billing rate
+        client.post("/api/admin/billing-rates", json={"profile": "pleno", "valor_hora": 180.0}, headers=auth_headers)
+        client.post(
+            "/api/admin/team",
+            json={"user_email": "tiagohlatki@db1.com.br", "cpf": "111.222.333-44", "subcontrato": "SUB 01", "profile": "pleno"},
+            headers=auth_headers,
+        )
+        self._submit(client, auth_headers)
+        sub_id = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"][0]["id"]
+        client.patch(f"/api/admin/submissions/{sub_id}/approve", headers=auth_headers)
+        resp = client.get("/api/admin/billing/2026-05/export", headers=auth_headers)
+        assert resp.status_code == 200
+        assert "spreadsheet" in resp.headers["content-type"]
+
+
+# ── ProcessGaWithOracle ────────────────────────────────────────────────────────
+
 class TestProcessGaWithOracle:
     """Unit tests for _process_ga_with_oracle — mocks repository and engine."""
 
