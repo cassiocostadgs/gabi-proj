@@ -3,11 +3,13 @@
 
 import contextlib
 import functools
+import json
 import os
 import secrets
 import sqlite3
 import tempfile
 from datetime import UTC, date, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from typing import Annotated
 
@@ -16,7 +18,7 @@ import bcrypt
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
@@ -101,10 +103,58 @@ def _init_db() -> None:
                 uploaded_by TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS billing_rates (
+                profile    TEXT PRIMARY KEY,
+                valor_hora REAL NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS team_members (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_email  TEXT    UNIQUE NOT NULL,
+                cpf         TEXT    NOT NULL,
+                subcontrato TEXT    NOT NULL,
+                profile     TEXT    NOT NULL,
+                is_active   INTEGER NOT NULL DEFAULT 1,
+                created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ga_submissions (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_email          TEXT    NOT NULL,
+                competencia         TEXT    NOT NULL,
+                nome_profissional   TEXT    NOT NULL,
+                task_id             TEXT    NOT NULL,
+                horas_task          REAL    NOT NULL,
+                ga_filename         TEXT    NOT NULL,
+                ga_data             BLOB    NOT NULL,
+                validation_snapshot TEXT    NOT NULL,
+                status              TEXT    NOT NULL DEFAULT 'pending',
+                rejection_reason    TEXT,
+                submitted_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+                reviewed_at         TEXT,
+                reviewed_by         TEXT,
+                UNIQUE (user_email, competencia)
+            )
+        """)
+        conn.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES ('billing_cnpj', ?)",
+            (os.getenv("BILLING_CNPJ", ""),),
+        )
+
         # Migrations for existing installs
         for ddl in [
             "ALTER TABLE task_uploads ADD COLUMN competencia TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE ga_submissions ADD COLUMN approved_snapshot TEXT",
         ]:
             with contextlib.suppress(sqlite3.OperationalError):
                 conn.execute(ddl)
@@ -489,6 +539,531 @@ async def validate(
         raise HTTPException(status_code=422, detail="\n".join(errors))
 
     return {"persons": persons, "errors": errors}
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+_MONTH_ABBR_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
+
+
+def _competencia_label(competencia: str) -> str:
+    year, month = competencia.split("-")
+    return f"{_MONTH_ABBR_PT[int(month) - 1]}/{year[2:]}"
+
+
+def _competencia_date_range(competencia: str) -> tuple[date, date]:
+    y, m = (int(x) for x in competencia.split("-"))
+    last_day = (date(y, m % 12 + 1, 1) - timedelta(days=1)).day if m < 12 else 31
+    return date(y, m, 1), date(y, m, last_day)
+
+
+# ── Routes: settings (admin) ──────────────────────────────────────────────────
+
+
+@app.get("/api/admin/settings")
+async def admin_get_settings(_: AdminUser):
+    with _db() as conn:
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    return {r["key"]: r["value"] for r in rows}
+
+
+class UpdateSettingRequest(BaseModel):
+    value: str
+
+
+@app.put("/api/admin/settings/{key}")
+async def admin_update_setting(key: str, body: UpdateSettingRequest, _: AdminUser):
+    with _db() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, body.value),
+        )
+    return {"ok": True}
+
+
+# ── Routes: billing rates (admin) ─────────────────────────────────────────────
+
+
+class BillingRateRequest(BaseModel):
+    profile: str
+    valor_hora: float
+
+
+@app.get("/api/admin/billing-rates")
+async def admin_list_billing_rates(_: AdminUser):
+    with _db() as conn:
+        rows = conn.execute("SELECT profile, valor_hora FROM billing_rates ORDER BY profile").fetchall()
+    return {"rates": [dict(r) for r in rows]}
+
+
+@app.post("/api/admin/billing-rates", status_code=201)
+async def admin_create_billing_rate(body: BillingRateRequest, _: AdminUser):
+    try:
+        with _db() as conn:
+            conn.execute(
+                "INSERT INTO billing_rates (profile, valor_hora) VALUES (?, ?)",
+                (body.profile, body.valor_hora),
+            )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Perfil já cadastrado") from exc
+    return {"ok": True, "profile": body.profile}
+
+
+class UpdateBillingRateRequest(BaseModel):
+    valor_hora: float
+
+
+@app.put("/api/admin/billing-rates/{profile}")
+async def admin_update_billing_rate(profile: str, body: UpdateBillingRateRequest, _: AdminUser):
+    with _db() as conn:
+        result = conn.execute(
+            "UPDATE billing_rates SET valor_hora=? WHERE profile=?",
+            (body.valor_hora, profile),
+        )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Perfil não encontrado")
+    return {"ok": True}
+
+
+@app.delete("/api/admin/billing-rates/{profile}")
+async def admin_delete_billing_rate(profile: str, _: AdminUser):
+    with _db() as conn:
+        result = conn.execute("DELETE FROM billing_rates WHERE profile=?", (profile,))
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Perfil não encontrado")
+    return {"ok": True}
+
+
+# ── Routes: team members (admin) ──────────────────────────────────────────────
+
+
+class CreateTeamMemberRequest(BaseModel):
+    user_email: str
+    cpf: str
+    subcontrato: str
+    profile: str
+
+
+class UpdateTeamMemberRequest(BaseModel):
+    cpf: str
+    subcontrato: str
+    profile: str
+    is_active: bool = True
+
+
+@app.get("/api/admin/team")
+async def admin_list_team(_: AdminUser):
+    with _db() as conn:
+        rows = conn.execute("""
+            SELECT id, user_email, cpf, subcontrato, profile, is_active, created_at
+            FROM team_members ORDER BY id
+        """).fetchall()
+    return {"members": [dict(r) for r in rows]}
+
+
+@app.post("/api/admin/team", status_code=201)
+async def admin_create_team_member(body: CreateTeamMemberRequest, _: AdminUser):
+    with _db() as conn:
+        user = conn.execute("SELECT 1 FROM users WHERE email=?", (body.user_email,)).fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        rate = conn.execute("SELECT 1 FROM billing_rates WHERE profile=?", (body.profile,)).fetchone()
+        if not rate:
+            raise HTTPException(status_code=400, detail="Perfil não cadastrado em tarifas")
+        try:
+            conn.execute(
+                "INSERT INTO team_members (user_email, cpf, subcontrato, profile) VALUES (?, ?, ?, ?)",
+                (body.user_email, body.cpf, body.subcontrato, body.profile),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(status_code=409, detail="Usuário já é membro do time") from exc
+    return {"ok": True}
+
+
+@app.put("/api/admin/team/{member_id}")
+async def admin_update_team_member(member_id: int, body: UpdateTeamMemberRequest, _: AdminUser):
+    with _db() as conn:
+        rate = conn.execute("SELECT 1 FROM billing_rates WHERE profile=?", (body.profile,)).fetchone()
+        if not rate:
+            raise HTTPException(status_code=400, detail="Perfil não cadastrado em tarifas")
+        result = conn.execute(
+            "UPDATE team_members SET cpf=?, subcontrato=?, profile=?, is_active=? WHERE id=?",
+            (body.cpf, body.subcontrato, body.profile, int(body.is_active), member_id),
+        )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Membro não encontrado")
+    return {"ok": True}
+
+
+@app.delete("/api/admin/team/{member_id}")
+async def admin_delete_team_member(member_id: int, _: AdminUser):
+    with _db() as conn:
+        result = conn.execute("DELETE FROM team_members WHERE id=?", (member_id,))
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Membro não encontrado")
+    return {"ok": True}
+
+
+# ── Routes: submissions (user) ────────────────────────────────────────────────
+
+
+@app.post("/api/submissions", status_code=201)
+async def submit_validation(
+    ga: Annotated[UploadFile, File()],
+    competencia: Annotated[str, Form()],
+    nome_profissional: Annotated[str, Form()],
+    task_id: Annotated[str, Form()],
+    horas_task: Annotated[float, Form()],
+    snapshot: Annotated[str, Form()],
+    email: CurrentUser = "",
+):
+    ga_bytes = await ga.read()
+    with _db() as conn:
+        conn.execute(
+            """
+            INSERT INTO ga_submissions
+                (user_email, competencia, nome_profissional, task_id, horas_task,
+                 ga_filename, ga_data, validation_snapshot, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+            ON CONFLICT(user_email, competencia) DO UPDATE SET
+                nome_profissional = excluded.nome_profissional,
+                task_id           = excluded.task_id,
+                horas_task        = excluded.horas_task,
+                ga_filename       = excluded.ga_filename,
+                ga_data           = excluded.ga_data,
+                validation_snapshot = excluded.validation_snapshot,
+                status            = 'pending',
+                rejection_reason  = NULL,
+                submitted_at      = datetime('now'),
+                reviewed_at       = NULL,
+                reviewed_by       = NULL
+            """,
+            (email, competencia, nome_profissional, task_id, horas_task,
+             ga.filename or "ga.xls", ga_bytes, snapshot),
+        )
+    return {"ok": True}
+
+
+@app.get("/api/submissions/status")
+async def submission_status(competencia: str, email: CurrentUser = ""):
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT id, status, rejection_reason, submitted_at FROM ga_submissions "
+            "WHERE user_email=? AND competencia=?",
+            (email, competencia),
+        ).fetchone()
+    if not row:
+        return {"submitted": False}
+    return {"submitted": True, **dict(row)}
+
+
+@app.get("/api/submissions/my")
+async def list_my_submissions(email: CurrentUser = ""):
+    with _db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, competencia, nome_profissional, task_id, horas_task,
+                   ga_filename, status, rejection_reason, submitted_at, reviewed_at
+            FROM ga_submissions
+            WHERE user_email=?
+            ORDER BY competencia DESC
+            """,
+            (email,),
+        ).fetchall()
+    return {"submissions": [dict(r) for r in rows]}
+
+
+@app.get("/api/submissions/{submission_id}")
+async def get_my_submission(submission_id: int, email: CurrentUser = ""):
+    with _db() as conn:
+        row = conn.execute(
+            """
+            SELECT id, competencia, nome_profissional, task_id, horas_task,
+                   ga_filename, status, rejection_reason, submitted_at, reviewed_at,
+                   validation_snapshot, approved_snapshot
+            FROM ga_submissions
+            WHERE id=? AND user_email=?
+            """,
+            (submission_id, email),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Submissão não encontrada")
+
+    data = dict(row)
+    status_val = data["status"]
+
+    if status_val == "approved":
+        raw = data.get("approved_snapshot")
+        if raw:
+            snapshot = json.loads(raw)
+            snapshot_source = "approved"
+        else:
+            snapshot = None
+            snapshot_source = None
+    else:
+        raw = data.get("validation_snapshot")
+        snapshot = json.loads(raw) if raw else None
+        snapshot_source = "original" if snapshot else None
+
+    return {
+        "id": data["id"],
+        "competencia": data["competencia"],
+        "nome_profissional": data["nome_profissional"],
+        "task_id": data["task_id"],
+        "horas_task": data["horas_task"],
+        "ga_filename": data["ga_filename"],
+        "status": status_val,
+        "rejection_reason": data["rejection_reason"],
+        "submitted_at": data["submitted_at"],
+        "reviewed_at": data["reviewed_at"],
+        "snapshot": snapshot,
+        "snapshot_source": snapshot_source,
+    }
+
+
+# ── Routes: submissions (admin) ───────────────────────────────────────────────
+
+
+@app.get("/api/admin/submissions/summary")
+async def admin_submissions_summary(_: AdminUser):
+    with _db() as conn:
+        total_members = conn.execute(
+            "SELECT COUNT(*) FROM team_members WHERE is_active=1"
+        ).fetchone()[0]
+        rows = conn.execute("""
+            SELECT
+                competencia,
+                COUNT(*) AS total_submitted,
+                SUM(CASE WHEN status='approved' THEN 1 ELSE 0 END) AS total_approved,
+                SUM(CASE WHEN status='pending'  THEN 1 ELSE 0 END) AS total_pending,
+                SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END) AS total_rejected
+            FROM ga_submissions
+            GROUP BY competencia
+            ORDER BY competencia DESC
+        """).fetchall()
+    return {"total_members": total_members, "competencias": [dict(r) for r in rows]}
+
+
+@app.get("/api/admin/submissions")
+async def admin_list_submissions(competencia: str, _: AdminUser):
+    with _db() as conn:
+        rows = conn.execute("""
+            SELECT id, user_email, competencia, nome_profissional, task_id, horas_task,
+                   ga_filename, status, rejection_reason, submitted_at, reviewed_at, reviewed_by
+            FROM ga_submissions
+            WHERE competencia=?
+            ORDER BY nome_profissional
+        """, (competencia,)).fetchall()
+    return {"submissions": [dict(r) for r in rows]}
+
+
+class ApproveSubmissionRequest(BaseModel):
+    horas_task: float
+    approved_snapshot: str
+
+
+@app.patch("/api/admin/submissions/{submission_id}/approve")
+async def admin_approve_submission(
+    submission_id: int, body: ApproveSubmissionRequest, admin_email: AdminUser
+):
+    with _db() as conn:
+        result = conn.execute(
+            "UPDATE ga_submissions SET status='approved', rejection_reason=NULL, "
+            "horas_task=?, approved_snapshot=?, "
+            "reviewed_at=datetime('now'), reviewed_by=? WHERE id=?",
+            (body.horas_task, body.approved_snapshot, admin_email, submission_id),
+        )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Submission não encontrada")
+    return {"ok": True}
+
+
+class RejectSubmissionRequest(BaseModel):
+    reason: str = ""
+
+
+@app.patch("/api/admin/submissions/{submission_id}/reject")
+async def admin_reject_submission(
+    submission_id: int, body: RejectSubmissionRequest, admin_email: AdminUser
+):
+    with _db() as conn:
+        result = conn.execute(
+            "UPDATE ga_submissions SET status='rejected', rejection_reason=?, "
+            "reviewed_at=datetime('now'), reviewed_by=? WHERE id=?",
+            (body.reason, admin_email, submission_id),
+        )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Submission não encontrada")
+    return {"ok": True}
+
+
+@app.post("/api/admin/submissions/{submission_id}/rerun")
+async def admin_rerun_submission(submission_id: int, _: AdminUser):
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT user_email, competencia, ga_filename, ga_data FROM ga_submissions WHERE id=?",
+            (submission_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Submission não encontrada")
+
+    sd, ed = _competencia_date_range(row["competencia"])
+    year, month = sd.year, sd.month
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ga_path = os.path.join(tmpdir, row["ga_filename"])
+        with open(ga_path, "wb") as f:
+            f.write(row["ga_data"])
+
+        if is_oracle_configured():
+            person, error = await _run_oracle(ga_path, row["user_email"], sd, ed, year, month)
+            if error:
+                raise HTTPException(status_code=422, detail=error)
+        else:
+            try:
+                persons, errors = _run_file(ga_path, row["competencia"])
+                if not persons:
+                    raise HTTPException(status_code=422, detail="\n".join(errors) or "Nenhum resultado")
+                person = persons[0]
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    new_horas = person.get("task_total", 0.0) if person else 0.0
+    new_snapshot = json.dumps(person, ensure_ascii=False)
+    with _db() as conn:
+        conn.execute(
+            "UPDATE ga_submissions SET horas_task=?, validation_snapshot=?, status='pending', "
+            "rejection_reason=NULL, submitted_at=datetime('now'), reviewed_at=NULL, reviewed_by=NULL "
+            "WHERE id=?",
+            (new_horas, new_snapshot, submission_id),
+        )
+    return {"ok": True, "horas_task": new_horas}
+
+
+@app.get("/api/admin/submissions/{submission_id}/preview")
+async def admin_preview_submission(submission_id: int, _: AdminUser):
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT user_email, competencia, ga_filename, ga_data, validation_snapshot, "
+            "approved_snapshot, status, reviewed_at, reviewed_by "
+            "FROM ga_submissions WHERE id=?",
+            (submission_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Submission não encontrada")
+
+    # Approved submissions return the immutable approved snapshot — no reprocessing.
+    if row["status"] == "approved" and row["approved_snapshot"]:
+        return {
+            "person": json.loads(row["approved_snapshot"]),
+            "submission_snapshot": json.loads(row["validation_snapshot"]),
+            "is_immutable": True,
+            "reviewed_at": row["reviewed_at"],
+            "reviewed_by": row["reviewed_by"],
+        }
+
+    sd, ed = _competencia_date_range(row["competencia"])
+    year, month = sd.year, sd.month
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ga_path = os.path.join(tmpdir, row["ga_filename"])
+        with open(ga_path, "wb") as f:
+            f.write(row["ga_data"])
+
+        if is_oracle_configured():
+            person, error = await _run_oracle(ga_path, row["user_email"], sd, ed, year, month)
+            if error:
+                raise HTTPException(status_code=422, detail=error)
+        else:
+            try:
+                persons, errors = _run_file(ga_path, row["competencia"])
+                if not persons:
+                    raise HTTPException(status_code=422, detail="\n".join(errors) or "Nenhum resultado")
+                person = persons[0]
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return {
+        "person": person,
+        "submission_snapshot": json.loads(row["validation_snapshot"]),
+        "is_immutable": False,
+        "reviewed_at": row["reviewed_at"],
+        "reviewed_by": row["reviewed_by"],
+    }
+
+
+# ── Routes: billing export (admin) ────────────────────────────────────────────
+
+
+@app.get("/api/admin/billing/{competencia}/export")
+async def export_billing(competencia: str, _: AdminUser):
+    with _db() as conn:
+        cnpj_row = conn.execute("SELECT value FROM settings WHERE key='billing_cnpj'").fetchone()
+        cnpj = cnpj_row["value"] if cnpj_row else ""
+        rows = conn.execute("""
+            SELECT
+                s.nome_profissional,
+                s.horas_task,
+                s.competencia,
+                tm.cpf,
+                tm.subcontrato,
+                br.valor_hora
+            FROM ga_submissions s
+            JOIN team_members tm ON tm.user_email = s.user_email
+            JOIN billing_rates br ON br.profile   = tm.profile
+            WHERE s.competencia=? AND s.status='approved'
+            ORDER BY s.nome_profissional
+        """, (competencia,)).fetchall()
+
+    if not rows:
+        raise HTTPException(
+            status_code=404, detail="Nenhuma submission aprovada para esta competência"
+        )
+
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Faturamento"
+    ws.append([
+        "CNPJ EMPRESA",
+        "Nº NOTA FISCAL",
+        "CPF PROFISSIONAL",
+        "Nº SUBCONTRATO",
+        "VALOR HORA",
+        "QUANTIDADE DE HORAS (DECIMAL)",
+        "TOTAL",
+        "COMPETÊNCIA EVENTO",
+        "NOME DO PROFISSIONAL",
+    ])
+
+    comp_label = _competencia_label(competencia)
+    for row in rows:
+        total = round(row["horas_task"] * row["valor_hora"], 2)
+        ws.append([
+            cnpj,
+            "",
+            row["cpf"],
+            row["subcontrato"],
+            row["valor_hora"],
+            row["horas_task"],
+            total,
+            comp_label,
+            row["nome_profissional"],
+        ])
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    safe = competencia.replace("-", "_")
+    return Response(
+        content=buf.read(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="faturamento_{safe}.xlsx"'},
+    )
 
 
 # ── Startup + static ──────────────────────────────────────────────────────────
