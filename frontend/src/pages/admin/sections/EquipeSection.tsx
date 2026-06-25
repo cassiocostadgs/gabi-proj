@@ -22,7 +22,12 @@ export function EquipeSection() {
   const [profile, setProfile] = useState('')
   const [formError, setFormError] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [editFields, setEditFields] = useState({ cpf: '', subcontrato: '', profile: '', is_active: true })
+  const [editFields, setEditFields] = useState({
+    cpf: '',
+    subcontrato: '',
+    profile: '',
+    is_active: true,
+  })
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
 
   const { data: members = [], isLoading } = useQuery({
@@ -46,7 +51,11 @@ export function EquipeSection() {
   const createMutation = useMutation({
     mutationFn: () => billingService.createMember({ user_email: email, cpf, subcontrato, profile }),
     onSuccess: () => {
-      setEmail(''); setCpf(''); setSubcontrato(''); setProfile(''); setFormError('')
+      setEmail('')
+      setCpf('')
+      setSubcontrato('')
+      setProfile('')
+      setFormError('')
       qc.invalidateQueries({ queryKey: ['admin-team'] })
     },
     onError: (err: unknown) => {
@@ -56,12 +65,18 @@ export function EquipeSection() {
 
   const updateMutation = useMutation({
     mutationFn: () => billingService.updateMember(editingId!, editFields),
-    onSuccess: () => { setEditingId(null); qc.invalidateQueries({ queryKey: ['admin-team'] }) },
+    onSuccess: () => {
+      setEditingId(null)
+      qc.invalidateQueries({ queryKey: ['admin-team'] })
+    },
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => billingService.deleteMember(id),
-    onSuccess: () => { setConfirmDeleteId(null); qc.invalidateQueries({ queryKey: ['admin-team'] }) },
+    onSuccess: () => {
+      setConfirmDeleteId(null)
+      qc.invalidateQueries({ queryKey: ['admin-team'] })
+    },
   })
 
   const handleSubmit = (e: FormEvent) => {
@@ -74,15 +89,24 @@ export function EquipeSection() {
     <section>
       <div className="flex items-center gap-2 mb-4">
         <Users size={16} className="text-slate-400" />
-        <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">Equipe de faturamento</h2>
+        <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
+          Equipe de faturamento
+        </h2>
       </div>
 
       {/* Add member form */}
-      <form onSubmit={handleSubmit} className="bg-slate-800 border border-slate-700 rounded-xl p-5 mb-5">
-        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">Novo membro</p>
+      <form
+        onSubmit={handleSubmit}
+        className="bg-slate-800 border border-slate-700 rounded-xl p-5 mb-5"
+      >
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">
+          Novo membro
+        </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Usuário</label>
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+              Usuário
+            </label>
             <select
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -91,12 +115,16 @@ export function EquipeSection() {
             >
               <option value="">Selecione...</option>
               {availableUsers.map((u) => (
-                <option key={u.email} value={u.email}>{u.email}</option>
+                <option key={u.email} value={u.email}>
+                  {u.email}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Perfil</label>
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+              Perfil
+            </label>
             <select
               value={profile}
               onChange={(e) => setProfile(e.target.value)}
@@ -105,12 +133,16 @@ export function EquipeSection() {
             >
               <option value="">Selecione...</option>
               {rates.map((r) => (
-                <option key={r.profile} value={r.profile}>{r.profile} — R$ {r.valor_hora.toFixed(2)}</option>
+                <option key={r.profile} value={r.profile}>
+                  {r.profile} — R$ {r.valor_hora.toFixed(2)}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">CPF</label>
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+              CPF
+            </label>
             <input
               type="text"
               value={cpf}
@@ -121,7 +153,9 @@ export function EquipeSection() {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Subcontrato</label>
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+              Subcontrato
+            </label>
             <input
               type="text"
               value={subcontrato}
@@ -145,7 +179,9 @@ export function EquipeSection() {
 
       {/* Members list */}
       {isLoading ? (
-        <div className="flex justify-center py-6"><Spinner /></div>
+        <div className="flex justify-center py-6">
+          <Spinner />
+        </div>
       ) : (
         <div className="space-y-2">
           {members.map((m) => (
@@ -158,7 +194,9 @@ export function EquipeSection() {
                   <input
                     type="text"
                     value={editFields.cpf}
-                    onChange={(e) => setEditFields((f) => ({ ...f, cpf: formatCpf(e.target.value) }))}
+                    onChange={(e) =>
+                      setEditFields((f) => ({ ...f, cpf: formatCpf(e.target.value) }))
+                    }
                     placeholder="CPF"
                     className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-50 text-xs outline-none focus:border-blue-500"
                   />
@@ -176,11 +214,24 @@ export function EquipeSection() {
                       className="flex-1 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-50 text-xs outline-none focus:border-blue-500"
                     >
                       {rates.map((r) => (
-                        <option key={r.profile} value={r.profile}>{r.profile}</option>
+                        <option key={r.profile} value={r.profile}>
+                          {r.profile}
+                        </option>
                       ))}
                     </select>
-                    <button onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending} className="text-green-400 hover:text-green-300 transition-colors"><Check size={14} /></button>
-                    <button onClick={() => setEditingId(null)} className="text-slate-600 hover:text-slate-400 transition-colors"><X size={14} /></button>
+                    <button
+                      onClick={() => updateMutation.mutate()}
+                      disabled={updateMutation.isPending}
+                      className="text-green-400 hover:text-green-300 transition-colors"
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="text-slate-600 hover:text-slate-400 transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -189,11 +240,21 @@ export function EquipeSection() {
                     <span className="font-semibold text-slate-300">{m.user_email}</span>
                     <span className="text-slate-500 ml-3">{m.cpf}</span>
                     <span className="text-slate-500 ml-3">{m.subcontrato}</span>
-                    <span className="ml-2 bg-slate-800 text-slate-400 border border-slate-700 text-[0.6rem] font-bold px-1.5 py-0.5 rounded uppercase">{m.profile}</span>
+                    <span className="ml-2 bg-slate-800 text-slate-400 border border-slate-700 text-[0.6rem] font-bold px-1.5 py-0.5 rounded uppercase">
+                      {m.profile}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0 ml-3">
                     <button
-                      onClick={() => { setEditingId(m.id); setEditFields({ cpf: m.cpf, subcontrato: m.subcontrato, profile: m.profile, is_active: m.is_active }) }}
+                      onClick={() => {
+                        setEditingId(m.id)
+                        setEditFields({
+                          cpf: m.cpf,
+                          subcontrato: m.subcontrato,
+                          profile: m.profile,
+                          is_active: m.is_active,
+                        })
+                      }}
                       className="text-slate-600 hover:text-slate-300 transition-colors"
                     >
                       <Pencil size={13} />
@@ -201,11 +262,27 @@ export function EquipeSection() {
                     {confirmDeleteId === m.id ? (
                       <div className="flex items-center gap-1">
                         <span className="text-slate-500">Excluir?</span>
-                        <button onClick={() => deleteMutation.mutate(m.id)} disabled={deleteMutation.isPending} className="text-red-400 hover:text-red-300 transition-colors"><Check size={13} /></button>
-                        <button onClick={() => setConfirmDeleteId(null)} className="text-slate-600 hover:text-slate-400 transition-colors"><X size={13} /></button>
+                        <button
+                          onClick={() => deleteMutation.mutate(m.id)}
+                          disabled={deleteMutation.isPending}
+                          className="text-red-400 hover:text-red-300 transition-colors"
+                        >
+                          <Check size={13} />
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="text-slate-600 hover:text-slate-400 transition-colors"
+                        >
+                          <X size={13} />
+                        </button>
                       </div>
                     ) : (
-                      <button onClick={() => setConfirmDeleteId(m.id)} className="text-slate-600 hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
+                      <button
+                        onClick={() => setConfirmDeleteId(m.id)}
+                        className="text-slate-600 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 size={13} />
+                      </button>
                     )}
                   </div>
                 </div>

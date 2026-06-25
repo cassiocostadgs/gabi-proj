@@ -20,7 +20,7 @@ function fmtDate(iso: string | null): string {
 const BORDER_CLS: Record<string, string> = {
   approved: 'border-l-4 border-l-emerald-600',
   rejected: 'border-l-4 border-l-red-700',
-  pending:  'border-l-4 border-l-slate-600',
+  pending: 'border-l-4 border-l-slate-600',
 }
 
 interface Props {
@@ -76,17 +76,23 @@ export function SubmissionDrawer({ submission, onClose, onActionDone }: Props) {
     <>
       <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
 
-      <div className={`fixed right-0 top-0 h-full w-full max-w-3xl bg-slate-900 border-l border-slate-700 z-50 flex flex-col shadow-2xl ${borderCls}`}>
-
+      <div
+        className={`fixed right-0 top-0 h-full w-full max-w-3xl bg-slate-900 border-l border-slate-700 z-50 flex flex-col shadow-2xl ${borderCls}`}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
           <div className="min-w-0">
-            <p className="font-semibold text-slate-100 text-sm truncate">{submission.nome_profissional}</p>
+            <p className="font-semibold text-slate-100 text-sm truncate">
+              {submission.nome_profissional}
+            </p>
             <p className="text-xs text-slate-500 mt-0.5 truncate">
               {submission.user_email} · {submission.competencia}
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 transition-colors p-1">
+          <button
+            onClick={onClose}
+            className="text-slate-500 hover:text-slate-300 transition-colors p-1"
+          >
             <X size={18} />
           </button>
         </div>
@@ -121,7 +127,8 @@ export function SubmissionDrawer({ submission, onClose, onActionDone }: Props) {
                       Snapshot de aprovação — registro imutável
                     </p>
                     <p className="text-[0.7rem] text-emerald-700 mt-0.5">
-                      Aprovado em {fmtDate(data?.reviewed_at ?? null)} por {data?.reviewed_by ?? '—'}
+                      Aprovado em {fmtDate(data?.reviewed_at ?? null)} por{' '}
+                      {data?.reviewed_by ?? '—'}
                     </p>
                   </div>
                 </div>
@@ -133,7 +140,9 @@ export function SubmissionDrawer({ submission, onClose, onActionDone }: Props) {
                   <XCircle size={13} className="text-red-400 mt-0.5 shrink-0" />
                   <div>
                     <p className="text-xs font-semibold text-red-300">Reprovado</p>
-                    <p className="text-[0.7rem] text-red-500 mt-0.5">{submission.rejection_reason}</p>
+                    <p className="text-[0.7rem] text-red-500 mt-0.5">
+                      {submission.rejection_reason}
+                    </p>
                   </div>
                 </div>
               )}

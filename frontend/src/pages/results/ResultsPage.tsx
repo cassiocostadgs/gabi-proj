@@ -60,7 +60,10 @@ export function ResultsPage() {
           </button>
           {canSubmit && !alreadySubmitted && (
             <button
-              onClick={() => { setSubmitMsg(''); submitMutation.mutate() }}
+              onClick={() => {
+                setSubmitMsg('')
+                submitMutation.mutate()
+              }}
               disabled={submitMutation.isPending}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white transition-colors"
               title={wasRejected ? 'Re-submeter após rejeição' : 'Submeter para aprovação do admin'}
@@ -75,7 +78,9 @@ export function ResultsPage() {
             </span>
           )}
           {submitMsg && (
-            <span className={`text-xs ${submitMsg.startsWith('Erro') ? 'text-red-400' : 'text-emerald-400'}`}>
+            <span
+              className={`text-xs ${submitMsg.startsWith('Erro') ? 'text-red-400' : 'text-emerald-400'}`}
+            >
               {submitMsg}
             </span>
           )}

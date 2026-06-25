@@ -896,14 +896,26 @@ class ApproveSubmissionRequest(BaseModel):
 
 @app.patch("/api/admin/submissions/{submission_id}/approve")
 async def admin_approve_submission(
-    submission_id: int, body: ApproveSubmissionRequest, admin_email: AdminUser
+    submission_id: int, admin_email: AdminUser, body: ApproveSubmissionRequest | None = None
 ):
     with _db() as conn:
+        if body is None:
+            row = conn.execute(
+                "SELECT horas_task, validation_snapshot FROM ga_submissions WHERE id=?",
+                (submission_id,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Submission não encontrada")
+            horas_task = row["horas_task"]
+            approved_snapshot = row["validation_snapshot"]
+        else:
+            horas_task = body.horas_task
+            approved_snapshot = body.approved_snapshot
         result = conn.execute(
             "UPDATE ga_submissions SET status='approved', rejection_reason=NULL, "
             "horas_task=?, approved_snapshot=?, "
             "reviewed_at=datetime('now'), reviewed_by=? WHERE id=?",
-            (body.horas_task, body.approved_snapshot, admin_email, submission_id),
+            (horas_task, approved_snapshot, admin_email, submission_id),
         )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Submission não encontrada")

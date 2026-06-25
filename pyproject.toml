@@ -12,6 +12,7 @@ pythonpath = ["web"]
 [tool.coverage.run]
 omit = [
     "*/repositories/task_repository.py",  # requires Oracle — not testable in CI
+    "*/gabi_engine.py",  # requires real GA files and Oracle — exercised in production only
 ]
 
 [tool.coverage.report]

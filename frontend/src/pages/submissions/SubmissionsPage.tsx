@@ -99,8 +99,7 @@ export function SubmissionsPage() {
 
                   <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
                     <span>
-                      Arquivo:{' '}
-                      <span className="text-slate-400 font-medium">{sub.ga_filename}</span>
+                      Arquivo: <span className="text-slate-400 font-medium">{sub.ga_filename}</span>
                     </span>
                     <span>
                       Horas Task:{' '}

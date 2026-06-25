@@ -58,7 +58,10 @@ export function ConfiguracoesSection() {
 
   const saveCnpjMutation = useMutation({
     mutationFn: () => billingService.updateSetting('billing_cnpj', cnpj.replace(/\D/g, '')),
-    onSuccess: () => { setCnpjDirty(false); qc.invalidateQueries({ queryKey: ['admin-settings'] }) },
+    onSuccess: () => {
+      setCnpjDirty(false)
+      qc.invalidateQueries({ queryKey: ['admin-settings'] })
+    },
   })
 
   const createRateMutation = useMutation({
@@ -78,7 +81,10 @@ export function ConfiguracoesSection() {
   const updateRateMutation = useMutation({
     mutationFn: ({ profile, valor }: { profile: string; valor: number }) =>
       billingService.updateRate(profile, valor),
-    onSuccess: () => { setEditingProfile(null); qc.invalidateQueries({ queryKey: ['admin-billing-rates'] }) },
+    onSuccess: () => {
+      setEditingProfile(null)
+      qc.invalidateQueries({ queryKey: ['admin-billing-rates'] })
+    },
   })
 
   const deleteRateMutation = useMutation({
@@ -108,7 +114,10 @@ export function ConfiguracoesSection() {
             <input
               type="text"
               value={cnpj}
-              onChange={(e) => { setCnpj(formatCnpj(e.target.value)); setCnpjDirty(true) }}
+              onChange={(e) => {
+                setCnpj(formatCnpj(e.target.value))
+                setCnpjDirty(true)
+              }}
               placeholder="00.000.000/0001-00"
               className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-50 placeholder-slate-600 outline-none focus:border-blue-500 transition-colors"
             />
@@ -134,7 +143,10 @@ export function ConfiguracoesSection() {
         </div>
 
         {/* Add form — fixed position below heading */}
-        <form onSubmit={handleAddRate} className="bg-slate-800 border border-slate-700 rounded-xl p-5 max-w-sm mb-4">
+        <form
+          onSubmit={handleAddRate}
+          className="bg-slate-800 border border-slate-700 rounded-xl p-5 max-w-sm mb-4"
+        >
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
             Novo perfil
           </p>
@@ -187,13 +199,21 @@ export function ConfiguracoesSection() {
                   />
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => updateRateMutation.mutate({ profile: r.profile, valor: parseValor(editValor) })}
+                      onClick={() =>
+                        updateRateMutation.mutate({
+                          profile: r.profile,
+                          valor: parseValor(editValor),
+                        })
+                      }
                       disabled={updateRateMutation.isPending}
                       className="text-green-400 hover:text-green-300 transition-colors"
                     >
                       <Check size={14} />
                     </button>
-                    <button onClick={() => setEditingProfile(null)} className="text-slate-600 hover:text-slate-400 transition-colors">
+                    <button
+                      onClick={() => setEditingProfile(null)}
+                      className="text-slate-600 hover:text-slate-400 transition-colors"
+                    >
                       <X size={14} />
                     </button>
                   </div>
@@ -201,12 +221,13 @@ export function ConfiguracoesSection() {
               ) : (
                 <>
                   <span className="font-semibold text-slate-300 w-24">{r.profile}</span>
-                  <span className="text-slate-400">
-                    R$ {floatToValor(r.valor_hora)}
-                  </span>
+                  <span className="text-slate-400">R$ {floatToValor(r.valor_hora)}</span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => { setEditingProfile(r.profile); setEditValor(floatToValor(r.valor_hora)) }}
+                      onClick={() => {
+                        setEditingProfile(r.profile)
+                        setEditValor(floatToValor(r.valor_hora))
+                      }}
                       className="text-slate-600 hover:text-slate-300 transition-colors"
                     >
                       <Pencil size={13} />
@@ -215,13 +236,19 @@ export function ConfiguracoesSection() {
                       <div className="flex items-center gap-1">
                         <span className="text-slate-500">Excluir?</span>
                         <button
-                          onClick={() => { deleteRateMutation.mutate(r.profile); setConfirmDeleteProfile(null) }}
+                          onClick={() => {
+                            deleteRateMutation.mutate(r.profile)
+                            setConfirmDeleteProfile(null)
+                          }}
                           disabled={deleteRateMutation.isPending}
                           className="text-red-400 hover:text-red-300 transition-colors"
                         >
                           <Check size={13} />
                         </button>
-                        <button onClick={() => setConfirmDeleteProfile(null)} className="text-slate-600 hover:text-slate-400 transition-colors">
+                        <button
+                          onClick={() => setConfirmDeleteProfile(null)}
+                          className="text-slate-600 hover:text-slate-400 transition-colors"
+                        >
                           <X size={13} />
                         </button>
                       </div>

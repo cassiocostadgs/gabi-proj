@@ -1,5 +1,14 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LogOut, ClipboardCheck, FileSpreadsheet, Users, UserCheck, ClipboardList, Settings2, History } from 'lucide-react'
+import {
+  LogOut,
+  ClipboardCheck,
+  FileSpreadsheet,
+  Users,
+  UserCheck,
+  ClipboardList,
+  Settings2,
+  History,
+} from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
 import { GabiLogo } from './GabiLogo'
@@ -21,17 +30,17 @@ interface LayoutProps {
 }
 
 const ADMIN_NAV = [
-  { to: '/validate',          icon: ClipboardCheck, label: 'Validar' },
-  { to: '/admin/task',        icon: FileSpreadsheet, label: 'Relatório Task' },
-  { to: '/admin/users',       icon: Users,           label: 'Usuários' },
-  { to: '/admin/team',        icon: UserCheck,       label: 'Equipe' },
-  { to: '/admin/approvals',   icon: ClipboardList,   label: 'Aprovações' },
-  { to: '/admin/settings',    icon: Settings2,       label: 'Configurações' },
+  { to: '/validate', icon: ClipboardCheck, label: 'Validar' },
+  { to: '/admin/task', icon: FileSpreadsheet, label: 'Relatório Task' },
+  { to: '/admin/users', icon: Users, label: 'Usuários' },
+  { to: '/admin/team', icon: UserCheck, label: 'Equipe' },
+  { to: '/admin/approvals', icon: ClipboardList, label: 'Aprovações' },
+  { to: '/admin/settings', icon: Settings2, label: 'Configurações' },
 ]
 
 const USER_NAV = [
-  { to: '/validate',     icon: ClipboardCheck, label: 'Validar' },
-  { to: '/submissions',  icon: History,        label: 'Submissões' },
+  { to: '/validate', icon: ClipboardCheck, label: 'Validar' },
+  { to: '/submissions', icon: History, label: 'Submissões' },
 ]
 
 function UserAvatar({ email }: { email: string }) {
@@ -140,16 +149,14 @@ export function Layout({ children, title, subtitle, actions }: LayoutProps) {
     </header>
   )
 
-  const contentHeader = (
-    (title || subtitle || actions) && (
-      <header className="sticky top-0 z-10 bg-slate-800 border-b border-slate-700 shadow-[0_1px_0_theme(colors.slate.700)] px-6 py-3.5 flex items-center justify-between gap-4 flex-wrap shrink-0">
-        <div>
-          {title && <p className="text-sm font-semibold text-slate-100">{title}</p>}
-          {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
-        </div>
-        {actions && <div className="flex items-center gap-2 flex-wrap">{actions}</div>}
-      </header>
-    )
+  const contentHeader = (title || subtitle || actions) && (
+    <header className="sticky top-0 z-10 bg-slate-800 border-b border-slate-700 shadow-[0_1px_0_theme(colors.slate.700)] px-6 py-3.5 flex items-center justify-between gap-4 flex-wrap shrink-0">
+      <div>
+        {title && <p className="text-sm font-semibold text-slate-100">{title}</p>}
+        {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+      </div>
+      {actions && <div className="flex items-center gap-2 flex-wrap">{actions}</div>}
+    </header>
   )
 
   if (user?.is_admin) {

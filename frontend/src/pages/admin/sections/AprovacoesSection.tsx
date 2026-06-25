@@ -1,6 +1,13 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ClipboardList, Download, AlertTriangle, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react'
+import {
+  ClipboardList,
+  Download,
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsRight,
+} from 'lucide-react'
 import { Spinner } from '../../../components/Spinner'
 import { billingService } from '../../../services/billing.service'
 import { validateService } from '../../../services/validate.service'
@@ -37,7 +44,11 @@ export function AprovacoesSection() {
     queryFn: billingService.getSummary,
   })
 
-  const { data: submissions = [], isLoading: loadingSubs, refetch: refetchSubs } = useQuery({
+  const {
+    data: submissions = [],
+    isLoading: loadingSubs,
+    refetch: refetchSubs,
+  } = useQuery({
     queryKey: ['admin-submissions', selectedComp],
     queryFn: () => billingService.listSubmissions(selectedComp!),
     enabled: !!selectedComp,
@@ -130,7 +141,8 @@ export function AprovacoesSection() {
           <div className="bg-slate-800 border border-slate-700 rounded-xl px-5 py-4 mb-4">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-slate-400">
-                {competenciaLabel(selectedComp)} — {approvedCount} aprovados de {totalMembers} esperados
+                {competenciaLabel(selectedComp)} — {approvedCount} aprovados de {totalMembers}{' '}
+                esperados
               </span>
               {compSummary && compSummary.total_pending > 0 && (
                 <span className="text-xs text-amber-400">
@@ -141,14 +153,21 @@ export function AprovacoesSection() {
             <div className="w-full bg-slate-700 rounded-full h-1.5">
               <div
                 className={`h-1.5 rounded-full transition-all ${isComplete ? 'bg-emerald-500' : 'bg-blue-500'}`}
-                style={{ width: totalMembers > 0 ? `${Math.min(100, (approvedCount / totalMembers) * 100)}%` : '0%' }}
+                style={{
+                  width:
+                    totalMembers > 0
+                      ? `${Math.min(100, (approvedCount / totalMembers) * 100)}%`
+                      : '0%',
+                }}
               />
             </div>
           </div>
 
           {/* Submissions list */}
           {loadingSubs ? (
-            <div className="flex justify-center py-6"><Spinner /></div>
+            <div className="flex justify-center py-6">
+              <Spinner />
+            </div>
           ) : (
             <div className="space-y-2 mb-4">
               {submissions.map((s) => (
@@ -160,31 +179,40 @@ export function AprovacoesSection() {
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="font-semibold text-slate-200 truncate">{s.nome_profissional}</p>
-                      <p className="text-slate-500 mt-0.5 truncate">{s.user_email} · {s.horas_task}h</p>
+                      <p className="text-slate-500 mt-0.5 truncate">
+                        {s.user_email} · {s.horas_task}h
+                      </p>
                       {s.rejection_reason && (
                         <p className="text-red-400 mt-1">Motivo: {s.rejection_reason}</p>
                       )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className={`px-2 py-0.5 rounded-full border text-[0.65rem] font-bold ${STATUS_CLS[s.status]}`}>
+                      <span
+                        className={`px-2 py-0.5 rounded-full border text-[0.65rem] font-bold ${STATUS_CLS[s.status]}`}
+                      >
                         {STATUS_LABEL[s.status]}
                       </span>
-                      <ChevronsRight size={14} className="text-slate-600 group-hover:text-slate-400 transition-colors" />
+                      <ChevronsRight
+                        size={14}
+                        className="text-slate-600 group-hover:text-slate-400 transition-colors"
+                      />
                     </div>
                   </div>
                 </button>
               ))}
               {submissions.length === 0 && (
-                <p className="text-sm text-slate-500 text-center py-6">Nenhuma submissão para esta competência.</p>
+                <p className="text-sm text-slate-500 text-center py-6">
+                  Nenhuma submissão para esta competência.
+                </p>
               )}
             </div>
           )}
 
           {/* Export button */}
-          {approvedCount > 0 && (
-            !confirmExport ? (
+          {approvedCount > 0 &&
+            (!confirmExport ? (
               <button
-                onClick={() => isComplete ? exportMutation.mutate() : setConfirmExport(true)}
+                onClick={() => (isComplete ? exportMutation.mutate() : setConfirmExport(true))}
                 disabled={exportMutation.isPending}
                 className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition-colors"
               >
@@ -196,11 +224,14 @@ export function AprovacoesSection() {
                 <div className="flex items-center gap-2 mb-2">
                   <AlertTriangle size={14} className="text-amber-400 shrink-0" />
                   <p className="text-xs font-semibold text-amber-400">
-                    {totalMembers - approvedCount} membro{totalMembers - approvedCount > 1 ? 's' : ''} ainda não aprovado{totalMembers - approvedCount > 1 ? 's' : ''}
+                    {totalMembers - approvedCount} membro
+                    {totalMembers - approvedCount > 1 ? 's' : ''} ainda não aprovado
+                    {totalMembers - approvedCount > 1 ? 's' : ''}
                   </p>
                 </div>
                 <p className="text-xs text-slate-400 mb-3 pl-5">
-                  O faturamento será gerado somente com as {approvedCount} submissões aprovadas. Deseja continuar?
+                  O faturamento será gerado somente com as {approvedCount} submissões aprovadas.
+                  Deseja continuar?
                 </p>
                 <div className="flex gap-2 pl-5">
                   <button
@@ -219,8 +250,7 @@ export function AprovacoesSection() {
                   </button>
                 </div>
               </div>
-            )
-          )}
+            ))}
         </>
       )}
 
@@ -229,7 +259,10 @@ export function AprovacoesSection() {
         <SubmissionDrawer
           submission={openSubmission}
           onClose={() => setOpenSubmission(null)}
-          onActionDone={() => { invalidate(); refetchSubs() }}
+          onActionDone={() => {
+            invalidate()
+            refetchSubs()
+          }}
         />
       )}
     </section>

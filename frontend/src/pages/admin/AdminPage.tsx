@@ -551,11 +551,16 @@ export function AdminPage() {
 
   const content = (() => {
     switch (section) {
-      case 'users':        return <UsersSection />
-      case 'team':         return <EquipeSection />
-      case 'approvals':    return <AprovacoesSection />
-      case 'settings':     return <ConfiguracoesSection />
-      default:             return <TaskSection />
+      case 'users':
+        return <UsersSection />
+      case 'team':
+        return <EquipeSection />
+      case 'approvals':
+        return <AprovacoesSection />
+      case 'settings':
+        return <ConfiguracoesSection />
+      default:
+        return <TaskSection />
     }
   })()
 

@@ -71,11 +71,7 @@ export const billingService = {
 
   // ── Submissions (user) ────────────────────────────────────────────────────────
 
-  submit: async (
-    gaFile: File,
-    competencia: string,
-    result: ValidationResult
-  ): Promise<void> => {
+  submit: async (gaFile: File, competencia: string, result: ValidationResult): Promise<void> => {
     const person = result.persons[0]
     if (!person) throw new Error('Nenhum resultado de validação disponível')
 
@@ -120,7 +116,9 @@ export const billingService = {
     return data.submissions
   },
 
-  previewSubmission: async (id: number): Promise<{
+  previewSubmission: async (
+    id: number
+  ): Promise<{
     person: Person
     submission_snapshot: Person
     is_immutable: boolean

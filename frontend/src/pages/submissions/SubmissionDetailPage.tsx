@@ -74,7 +74,9 @@ export function SubmissionDetailPage() {
             <div className="bg-slate-800/60 border border-slate-700 rounded-xl px-5 py-3.5 mb-5 flex flex-col gap-2.5">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 {StatusIcon && (
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${statusCfg!.className}`}>
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${statusCfg!.className}`}
+                  >
                     <StatusIcon size={12} strokeWidth={2.5} />
                     {statusCfg!.label}
                   </span>
