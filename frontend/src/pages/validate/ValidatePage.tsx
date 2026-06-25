@@ -1,6 +1,6 @@
 import { useState, useRef, DragEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Check,
   X,
@@ -124,6 +124,7 @@ function SpreadsheetIcon({ className }: { className?: string }) {
 
 export function ValidatePage() {
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [gaFiles, setGaFiles] = useState<File[]>([])
@@ -182,6 +183,7 @@ export function ValidatePage() {
       if (gaFiles[0] && selectedCompetencia) {
         pendingSubmission.set(gaFiles[0], selectedCompetencia)
       }
+      qc.removeQueries({ queryKey: ['submission-status', selectedCompetencia] })
       navigate('/results', { state: { ...data, competencia: selectedCompetencia } })
     },
     onError: (err: unknown) => {

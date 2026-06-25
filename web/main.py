@@ -1007,7 +1007,10 @@ async def export_billing(competencia: str, _: AdminUser):
         rows = conn.execute("""
             SELECT
                 s.nome_profissional,
-                s.horas_task,
+                COALESCE(
+                    json_extract(s.approved_snapshot,    '$.ga_total'),
+                    json_extract(s.validation_snapshot,  '$.ga_total')
+                ) AS horas_ga,
                 s.competencia,
                 tm.cpf,
                 tm.subcontrato,
@@ -1016,7 +1019,7 @@ async def export_billing(competencia: str, _: AdminUser):
             JOIN team_members tm ON tm.user_email = s.user_email
             JOIN billing_rates br ON br.profile   = tm.profile
             WHERE s.competencia=? AND s.status='approved'
-            ORDER BY s.nome_profissional
+            ORDER BY tm.subcontrato ASC
         """, (competencia,)).fetchall()
 
     if not rows:
@@ -1024,11 +1027,29 @@ async def export_billing(competencia: str, _: AdminUser):
             status_code=404, detail="Nenhuma submission aprovada para esta competência"
         )
 
+    import re as _re
     import openpyxl
+    from openpyxl.styles import Alignment, Font
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Faturamento"
-    ws.append([
+
+    # Format CNPJ as XX.XXX.XXX/XXXX-XX if stored as raw digits
+    cnpj_digits = _re.sub(r"\D", "", cnpj)
+    if len(cnpj_digits) == 14:
+        cnpj = (
+            f"{cnpj_digits[:2]}.{cnpj_digits[2:5]}.{cnpj_digits[5:8]}"
+            f"/{cnpj_digits[8:12]}-{cnpj_digits[12:]}"
+        )
+
+    comp_label = _competencia_label(competencia)
+    total_horas = sum(row["horas_ga"] for row in rows)
+    total_nf = round(sum(row["horas_ga"] * row["valor_hora"] for row in rows), 2)
+
+    headers = [
         "CNPJ EMPRESA",
         "Nº NOTA FISCAL",
         "CPF PROFISSIONAL",
@@ -1038,22 +1059,76 @@ async def export_billing(competencia: str, _: AdminUser):
         "TOTAL",
         "COMPETÊNCIA EVENTO",
         "NOME DO PROFISSIONAL",
-    ])
+    ]
+    n_cols = len(headers)
 
-    comp_label = _competencia_label(competencia)
-    for row in rows:
-        total = round(row["horas_task"] * row["valor_hora"], 2)
-        ws.append([
-            cnpj,
-            "",
-            row["cpf"],
-            row["subcontrato"],
-            row["valor_hora"],
-            row["horas_task"],
-            total,
-            comp_label,
-            row["nome_profissional"],
-        ])
+    # Row 1: empty except F1 = total hours
+    ws.cell(row=1, column=6, value=total_horas).number_format = "#,##0.00"
+
+    # Row 2: headers (table style will format them)
+    for col, header in enumerate(headers, start=1):
+        ws.cell(row=2, column=col, value=header)
+
+    last_data_row = len(rows) + 2
+
+    # Data rows starting at row 3
+    currency_fmt = '"R$ "#,##0.00'
+    for i, row in enumerate(rows, start=3):
+        total = round(row["horas_ga"] * row["valor_hora"], 2)
+        ws.cell(row=i, column=1, value=cnpj)
+        ws.cell(row=i, column=2, value="")
+        ws.cell(row=i, column=3, value=row["cpf"])
+        ws.cell(row=i, column=4, value=row["subcontrato"])
+        ws.cell(row=i, column=5, value=row["valor_hora"]).number_format = currency_fmt
+        ws.cell(row=i, column=6, value=row["horas_ga"]).number_format = "#,##0.00"
+        ws.cell(row=i, column=7, value=total).number_format = currency_fmt
+        ws.cell(row=i, column=8, value=comp_label)
+        ws.cell(row=i, column=9, value=row["nome_profissional"])
+
+    # TOTAL NF summary row (outside the table)
+    summary_row = last_data_row + 1
+    ws.cell(row=summary_row, column=6, value="TOTAL NF").font = Font(bold=True)
+    c = ws.cell(row=summary_row, column=7, value=total_nf)
+    c.number_format = currency_fmt
+    c.font = Font(bold=True)
+
+    # Center-align all columns except col 1 (CNPJ EMPRESA) and col 9 (NOME DO PROFISSIONAL)
+    center = Alignment(horizontal="center")
+    centered_cols = set(range(2, n_cols))  # cols 2–8 (1-indexed)
+    for row_idx in range(1, summary_row + 1):
+        for col_idx in centered_cols:
+            ws.cell(row=row_idx, column=col_idx).alignment = center
+
+    # Format as Excel table (handles auto-filter and row banding)
+    table_ref = f"A2:{get_column_letter(n_cols)}{last_data_row}"
+    tab = Table(displayName="TabelaFaturamento", ref=table_ref)
+    tab.tableStyleInfo = TableStyleInfo(
+        name="TableStyleMedium2",
+        showFirstColumn=False,
+        showLastColumn=False,
+        showRowStripes=True,
+        showColumnStripes=False,
+    )
+    ws.add_table(tab)
+
+    # Auto-fit column widths based on content
+    def _cell_display_len(cell) -> int:
+        if cell.value is None:
+            return 0
+        if isinstance(cell.value, (int, float)):
+            fmt = cell.number_format or ""
+            if '"R$ "' in fmt:
+                return len(f"R$ {cell.value:,.2f}") + 1
+            return len(f"{cell.value:,.2f}")
+        return len(str(cell.value))
+
+    for col_cells in ws.iter_cols(min_row=1, max_row=summary_row, min_col=1, max_col=n_cols):
+        max_len = max((_cell_display_len(c) for c in col_cells), default=0)
+        if max_len > 0:
+            ws.column_dimensions[get_column_letter(col_cells[0].column)].width = max_len + 3
+
+    # Hide gridlines
+    ws.sheet_view.showGridLines = False
 
     buf = BytesIO()
     wb.save(buf)
