@@ -273,7 +273,7 @@ function CompetenciaModal({
 interface DropZoneProps {
   gaFiles: File[]
   dragOver: boolean
-  fileInputRef: React.RefObject<HTMLInputElement | null>
+  fileInputRef: React.RefObject<HTMLInputElement>
   onFilesPicked: (files: FileList | File[]) => void
   onDragOver: () => void
   onDragLeave: () => void
