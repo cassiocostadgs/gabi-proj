@@ -5,7 +5,7 @@ interface GabiLogoProps {
   className?: string
 }
 
-export function GabiLogo({ size = 64, className }: GabiLogoProps) {
+export function GabiLogo({ size = 64, className }: Readonly<GabiLogoProps>) {
   const uid = useId()
   const gradSide = `${uid}-side`
   const gradTop = `${uid}-top`

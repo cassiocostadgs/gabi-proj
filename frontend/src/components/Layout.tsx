@@ -43,7 +43,7 @@ const USER_NAV = [
   { to: '/submissions', icon: History, label: 'Submissões' },
 ]
 
-function UserAvatar({ email }: { email: string }) {
+function UserAvatar({ email }: Readonly<{ email: string }>) {
   const name = displayName(email)
   const initials = name
     .split(' ')
@@ -61,11 +61,11 @@ function Sidebar({
   nav,
   user,
   onLogout,
-}: {
+}: Readonly<{
   nav: typeof ADMIN_NAV
   user: { email?: string } | null
   onLogout: () => void
-}) {
+}>) {
   return (
     <aside className="hidden sm:flex sm:flex-col w-52 shrink-0 bg-slate-800/30 border-r border-slate-700 sticky top-0 h-screen overflow-y-auto">
       <div className="px-5 py-4 border-b border-slate-700 flex items-center gap-2">
@@ -110,7 +110,7 @@ function Sidebar({
   )
 }
 
-export function Layout({ children, title, subtitle, actions }: LayoutProps) {
+export function Layout({ children, title, subtitle, actions }: Readonly<LayoutProps>) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
 

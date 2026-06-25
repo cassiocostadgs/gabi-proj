@@ -93,6 +93,7 @@ export function LoginPage() {
               <div className="flex items-center gap-6 mb-4">
                 {/* Logo com hover */}
                 <div
+                  aria-hidden="true"
                   className="cursor-default flex-shrink-0"
                   style={{ width: 'fit-content' }}
                   onMouseEnter={(e) => {
@@ -318,6 +319,7 @@ export function LoginPage() {
                 {/* Email */}
                 <div>
                   <label
+                    htmlFor="login-username"
                     className="block text-[11px] font-semibold tracking-[.08em] uppercase mb-1.5"
                     style={{ color: 'rgba(255,255,255,.3)' }}
                   >
@@ -337,6 +339,7 @@ export function LoginPage() {
                     }
                   >
                     <input
+                      id="login-username"
                       type="text"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
@@ -361,6 +364,7 @@ export function LoginPage() {
                 {/* Password */}
                 <div>
                   <label
+                    htmlFor="login-password"
                     className="block text-[11px] font-semibold tracking-[.08em] uppercase mb-1.5"
                     style={{ color: 'rgba(255,255,255,.3)' }}
                   >
@@ -380,6 +384,7 @@ export function LoginPage() {
                     }
                   >
                     <input
+                      id="login-password"
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
@@ -404,15 +409,15 @@ export function LoginPage() {
                     </button>
                   </div>
                   <div className="flex justify-end mt-2">
-                    <a
-                      href="#"
-                      className="text-[12px] transition-colors"
+                    <button
+                      type="button"
+                      className="text-[12px] transition-colors bg-transparent border-0 p-0 cursor-pointer"
                       style={{ color: 'rgba(79,110,247,.7)' }}
                       onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(79,110,247,1)')}
                       onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(79,110,247,.7)')}
                     >
                       Esqueci a senha
-                    </a>
+                    </button>
                   </div>
                 </div>
 

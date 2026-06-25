@@ -71,7 +71,7 @@ function parseCompetencia(filename: string): string {
   const name = normalize(filename)
 
   // (?<!\d) / (?!\d) instead of \b — \b treats underscore as word char, breaking _2026_03_ patterns
-  const yearMatch = name.match(/(?<!\d)(20[2-9]\d)(?!\d)/)
+  const yearMatch = /(?<!\d)(20[2-9]\d)(?!\d)/.exec(name)
   const year = yearMatch?.[1] ?? prevYear
 
   for (const [ptName, num] of Object.entries(MONTHS_PT)) {
@@ -79,16 +79,16 @@ function parseCompetencia(filename: string): string {
   }
 
   // YYYY-MM or YYYY_MM (e.g. GA_Name_2026_03.xls)
-  const yyyymmMatch = name.match(/(?<!\d)(20[2-9]\d)[_-](\d{2})(?!\d)/)
+  const yyyymmMatch = /(?<!\d)(20[2-9]\d)[_-](\d{2})(?!\d)/.exec(name)
   if (yyyymmMatch) {
-    const m = parseInt(yyyymmMatch[2], 10)
+    const m = Number.parseInt(yyyymmMatch[2], 10)
     if (m >= 1 && m <= 12) return `${yyyymmMatch[1]}-${yyyymmMatch[2]}`
   }
 
   // MM-YYYY or MM_YYYY (e.g. Name 05-2026.xls)
-  const mmyyyyMatch = name.match(/(?<!\d)(\d{2})[_-](20[2-9]\d)(?!\d)/)
+  const mmyyyyMatch = /(?<!\d)(\d{2})[_-](20[2-9]\d)(?!\d)/.exec(name)
   if (mmyyyyMatch) {
-    const m = parseInt(mmyyyyMatch[1], 10)
+    const m = Number.parseInt(mmyyyyMatch[1], 10)
     if (m >= 1 && m <= 12) return `${mmyyyyMatch[2]}-${mmyyyyMatch[1]}`
   }
 
@@ -138,7 +138,7 @@ function TaskSection() {
     const comp = parseCompetencia(file.name)
     setPendingFile(file)
     setModalCompetencia(comp)
-    setPickerYear(parseInt(comp.split('-')[0], 10))
+    setPickerYear(Number.parseInt(comp.split('-')[0], 10))
     setShowPicker(false)
     setUploadMsg('')
     setShowModal(true)
@@ -165,11 +165,9 @@ function TaskSection() {
         </h2>
       </div>
 
-      <div
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
         onClick={() => fileInputRef.current?.click()}
-        onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
         onDragOver={(e) => {
           e.preventDefault()
           setIsDragging(true)
@@ -185,7 +183,7 @@ function TaskSection() {
           const file = e.dataTransfer.files[0]
           if (file) handleFileSelect(file)
         }}
-        className={`bg-slate-800 border-2 border-dashed rounded-xl px-5 py-5 text-center cursor-pointer transition-colors ${
+        className={`w-full bg-slate-800 border-2 border-dashed rounded-xl px-5 py-5 text-center cursor-pointer transition-colors ${
           isDragging ? 'border-blue-500 bg-slate-700' : 'border-slate-600 hover:border-blue-600'
         }`}
       >
@@ -211,7 +209,7 @@ function TaskSection() {
             <p className="text-xs text-slate-500 mt-1">Clique ou arraste para selecionar</p>
           </>
         )}
-      </div>
+      </button>
 
       {uploadMsg && (
         <p
@@ -223,7 +221,12 @@ function TaskSection() {
 
       {showModal && pendingFile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60" onClick={handleModalCancel} />
+          <button
+            type="button"
+            aria-label="Cancelar"
+            className="absolute inset-0 bg-black/60 cursor-default"
+            onClick={handleModalCancel}
+          />
           <div className="relative bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-sm mx-4 shadow-xl">
             <h3 className="text-sm font-semibold text-slate-200 mb-1">Confirmar competência</h3>
             <p className="text-xs text-slate-500 mb-4 truncate">{pendingFile.name}</p>
@@ -263,8 +266,8 @@ function TaskSection() {
                 </div>
                 {(() => {
                   const selParts = modalCompetencia.split('-')
-                  const selYear = selParts[0] ? parseInt(selParts[0], 10) : null
-                  const selMonth = selParts[1] ? parseInt(selParts[1], 10) : null
+                  const selYear = selParts[0] ? Number.parseInt(selParts[0], 10) : null
+                  const selMonth = selParts[1] ? Number.parseInt(selParts[1], 10) : null
                   return (
                     <div className="grid grid-cols-4 gap-1.5">
                       {MONTH_ABBR.map((abbr, i) => {
@@ -415,11 +418,15 @@ function UsersSection() {
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+            <label
+              htmlFor="new-user-email"
+              className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5"
+            >
               E-mail
             </label>
             <div className="flex items-center bg-slate-900 border border-slate-600 rounded-lg focus-within:border-blue-500 transition-colors overflow-hidden">
               <input
+                id="new-user-email"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -434,10 +441,14 @@ function UsersSection() {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+            <label
+              htmlFor="new-user-password"
+              className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5"
+            >
               Senha
             </label>
             <input
+              id="new-user-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

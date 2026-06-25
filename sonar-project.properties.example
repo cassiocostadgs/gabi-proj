@@ -1,0 +1,45 @@
+sonar.projectKey=GABI
+sonar.projectName=G.A.B.I.
+sonar.projectVersion=2.0.0
+
+sonar.host.url=http://localhost:9000
+sonar.token=SEU_TOKEN_AQUI
+
+# Sources
+sonar.sources=web,frontend/src
+sonar.sourceEncoding=UTF-8
+
+# Python
+sonar.python.version=3.11
+
+# Exclusions
+sonar.exclusions=\
+  web/.venv/**,\
+  web/__pycache__/**,\
+  web/tasks/**,\
+  **/*.pyc,\
+  **/test_*,\
+  **/*_test.py,\
+  frontend/src/**/*.test.tsx,\
+  frontend/src/**/*.test.ts,\
+  frontend/src/test-setup.ts
+
+# Coverage
+# Gerar antes: python -m pytest --cov=web --cov-report=xml
+sonar.python.coverage.reportPaths=coverage.xml
+# Gerar antes: cd frontend && npm run coverage
+sonar.javascript.lcov.reportPaths=.vitest-coverage/lcov-sonar.lcov
+
+# Frontend UI components são intencionalmente sem testes (CLAUDE.md)
+sonar.coverage.exclusions=\
+  web/gabi_engine.py,\
+  web/repositories/task_repository.py,\
+  web/repositories/__init__.py,\
+  web/core/**,\
+  frontend/src/components/**,\
+  frontend/src/pages/**,\
+  frontend/src/services/**,\
+  frontend/src/hooks/**,\
+  frontend/src/types/**,\
+  frontend/src/main.tsx,\
+  frontend/src/App.tsx

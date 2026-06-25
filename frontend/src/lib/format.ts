@@ -13,9 +13,29 @@ const MONTHS = [
   'Dezembro',
 ]
 
+const MONTHS_SHORT = [
+  'Jan',
+  'Fev',
+  'Mar',
+  'Abr',
+  'Mai',
+  'Jun',
+  'Jul',
+  'Ago',
+  'Set',
+  'Out',
+  'Nov',
+  'Dez',
+]
+
 export function competenciaLabel(val: string): string {
   const [y, m] = val.split('-')
-  return `${MONTHS[parseInt(m, 10) - 1]} de ${y}`
+  return `${MONTHS[Number.parseInt(m, 10) - 1]} de ${y}`
+}
+
+export function competenciaShort(val: string): string {
+  const [y, m] = val.split('-')
+  return `${MONTHS_SHORT[Number.parseInt(m, 10) - 1]}/${y.slice(2)}`
 }
 
 export function fmtDatetime(iso: string): string {

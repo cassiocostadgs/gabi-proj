@@ -42,6 +42,21 @@ export function ResultsPage() {
   const { persons, errors } = result
   const totalErrors = persons.reduce((s: number, p: Person) => s + p.errors_count, 0)
   const monthLabel = persons[0]?.month_label ?? ''
+
+  let errorsStatusBadge = null as JSX.Element | null
+  if (totalErrors === 0 && persons.length > 0) {
+    errorsStatusBadge = (
+      <span className="bg-green-950 text-green-300 border border-green-800 text-xs font-bold px-2.5 py-1 rounded-full">
+        Tudo OK
+      </span>
+    )
+  } else if (totalErrors > 0) {
+    errorsStatusBadge = (
+      <span className="bg-red-900 text-red-300 border border-red-800 text-xs font-bold px-2.5 py-1 rounded-full">
+        {totalErrors} erro{totalErrors > 1 ? 's' : ''}
+      </span>
+    )
+  }
   const canSubmit = persons.length > 0 && !!competencia && !!pending?.gaFile
   const alreadySubmitted = statusData?.submitted && statusData.status !== 'rejected'
   const wasRejected = statusData?.status === 'rejected'
@@ -84,15 +99,7 @@ export function ResultsPage() {
               {submitMsg}
             </span>
           )}
-          {totalErrors === 0 && persons.length > 0 ? (
-            <span className="bg-green-950 text-green-300 border border-green-800 text-xs font-bold px-2.5 py-1 rounded-full">
-              Tudo OK
-            </span>
-          ) : totalErrors > 0 ? (
-            <span className="bg-red-900 text-red-300 border border-red-800 text-xs font-bold px-2.5 py-1 rounded-full">
-              {totalErrors} erro{totalErrors > 1 ? 's' : ''}
-            </span>
-          ) : null}
+          {errorsStatusBadge}
         </>
       }
     >
@@ -100,8 +107,8 @@ export function ResultsPage() {
         {errors.length > 0 && (
           <div className="bg-red-950 border border-red-800 rounded-xl px-5 py-4 mb-5">
             <strong className="block text-red-400 text-sm mb-1">Avisos de processamento</strong>
-            {errors.map((e, i) => (
-              <p key={i} className="text-xs text-red-300">
+            {errors.map((e) => (
+              <p key={e} className="text-xs text-red-300">
                 {e}
               </p>
             ))}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ClipboardList,
@@ -11,7 +11,7 @@ import {
 import { Spinner } from '../../../components/Spinner'
 import { billingService } from '../../../services/billing.service'
 import { validateService } from '../../../services/validate.service'
-import { competenciaLabel } from '../../../lib/format'
+import { competenciaLabel, competenciaShort } from '../../../lib/format'
 import { SubmissionDrawer } from './SubmissionDrawer'
 import type { Submission, SubmissionStatus } from '../../../types'
 
@@ -25,6 +25,73 @@ const STATUS_CLS: Record<SubmissionStatus, string> = {
   pending: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
   approved: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
   rejected: 'bg-red-500/10 border-red-500/30 text-red-400',
+}
+
+interface ExportSectionProps {
+  approvedCount: number
+  totalMembers: number
+  isComplete: boolean
+  confirmExport: boolean
+  onRequest: () => void
+  onConfirm: () => void
+  onCancel: () => void
+  isPending: boolean
+}
+
+function ExportSection({
+  approvedCount,
+  totalMembers,
+  isComplete,
+  confirmExport,
+  onRequest,
+  onConfirm,
+  onCancel,
+  isPending,
+}: Readonly<ExportSectionProps>) {
+  if (approvedCount === 0) return null
+  if (confirmExport) {
+    const missing = totalMembers - approvedCount
+    return (
+      <div className="bg-amber-950/40 border border-amber-700/40 rounded-xl px-5 py-4">
+        <div className="flex items-center gap-2 mb-2">
+          <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+          <p className="text-xs font-semibold text-amber-400">
+            {missing} membro{missing > 1 ? 's' : ''} ainda não aprovado{missing > 1 ? 's' : ''}
+          </p>
+        </div>
+        <p className="text-xs text-slate-400 mb-3 pl-5">
+          O faturamento será gerado somente com as {approvedCount} submissões aprovadas. Deseja
+          continuar?
+        </p>
+        <div className="flex gap-2 pl-5">
+          <button
+            onClick={onConfirm}
+            disabled={isPending}
+            className="px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-white font-semibold rounded-lg text-xs transition-colors flex items-center gap-1.5"
+          >
+            {isPending ? <Spinner size="sm" /> : <Download size={12} />}
+            Gerar assim mesmo
+          </button>
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-slate-400 hover:text-slate-200 text-xs transition-colors"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <button
+      onClick={isComplete ? onConfirm : onRequest}
+      disabled={isPending}
+      className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition-colors"
+    >
+      {isPending ? <Spinner size="sm" /> : <Download size={14} />}
+      Gerar faturamento
+    </button>
+  )
 }
 
 export function AprovacoesSection() {
@@ -69,8 +136,16 @@ export function AprovacoesSection() {
   const approvedCount = compSummary?.total_approved ?? 0
   const isComplete = approvedCount >= totalMembers && totalMembers > 0
 
-  const competencias = summary?.competencias ?? []
-  const compIdx = competencias.findIndex((c) => c.competencia === selectedComp)
+  const competencias = useMemo(() => summary?.competencias ?? [], [summary])
+  // Display oldest → newest (left → right); API returns newest-first
+  const competenciasDisplay = [...competencias].reverse()
+  const displayIdx = competenciasDisplay.findIndex((c) => c.competencia === selectedComp)
+
+  useEffect(() => {
+    if (competencias.length > 0 && selectedComp === null) {
+      setSelectedComp(competencias[0].competencia)
+    }
+  }, [competencias, selectedComp])
 
   return (
     <section>
@@ -97,39 +172,52 @@ export function AprovacoesSection() {
 
       {/* Competência selector */}
       {competencias.length > 0 ? (
-        <div className="flex items-center gap-2 mb-5">
-          <button
-            onClick={() => setSelectedComp(competencias[compIdx + 1]?.competencia ?? null)}
-            disabled={compIdx >= competencias.length - 1}
-            className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-30"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <div className="flex gap-2 flex-wrap">
-            {competencias.map((c) => (
+        <div className="mb-5">
+          {/* Primary: arrows + selected month */}
+          <div className="flex items-center gap-3 mb-2">
+            <button
+              onClick={() =>
+                setSelectedComp(competenciasDisplay[displayIdx - 1]?.competencia ?? null)
+              }
+              disabled={displayIdx <= 0}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-25"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <div className="flex-1 text-center">
+              <p className="text-sm font-semibold text-slate-200">
+                {selectedComp ? competenciaLabel(selectedComp) : '—'}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {approvedCount} de {totalMembers} aprovados
+              </p>
+            </div>
+            <button
+              onClick={() =>
+                setSelectedComp(competenciasDisplay[displayIdx + 1]?.competencia ?? null)
+              }
+              disabled={displayIdx >= competenciasDisplay.length - 1}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-25"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+          {/* Secondary: paginator pills */}
+          <div className="flex gap-1 justify-center">
+            {competenciasDisplay.map((c) => (
               <button
                 key={c.competencia}
                 onClick={() => setSelectedComp(c.competencia)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors border ${
                   selectedComp === c.competencia
                     ? 'bg-blue-700/20 text-blue-300 border-blue-700/40'
-                    : 'text-slate-400 border-slate-700 hover:border-blue-600 hover:text-slate-200'
+                    : 'text-slate-600 border-transparent hover:text-slate-300 hover:border-slate-700'
                 }`}
               >
-                {competenciaLabel(c.competencia)}
-                <span className="ml-1.5 text-slate-500">
-                  {c.total_approved}/{totalMembers}
-                </span>
+                {competenciaShort(c.competencia)}
               </button>
             ))}
           </div>
-          <button
-            onClick={() => setSelectedComp(competencias[compIdx - 1]?.competencia ?? null)}
-            disabled={compIdx <= 0}
-            className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-30"
-          >
-            <ChevronRight size={16} />
-          </button>
         </div>
       ) : (
         <p className="text-sm text-slate-500 py-6 text-center">Nenhuma submissão recebida ainda.</p>
@@ -209,48 +297,16 @@ export function AprovacoesSection() {
           )}
 
           {/* Export button */}
-          {approvedCount > 0 &&
-            (!confirmExport ? (
-              <button
-                onClick={() => (isComplete ? exportMutation.mutate() : setConfirmExport(true))}
-                disabled={exportMutation.isPending}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition-colors"
-              >
-                {exportMutation.isPending ? <Spinner size="sm" /> : <Download size={14} />}
-                Gerar faturamento
-              </button>
-            ) : (
-              <div className="bg-amber-950/40 border border-amber-700/40 rounded-xl px-5 py-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <AlertTriangle size={14} className="text-amber-400 shrink-0" />
-                  <p className="text-xs font-semibold text-amber-400">
-                    {totalMembers - approvedCount} membro
-                    {totalMembers - approvedCount > 1 ? 's' : ''} ainda não aprovado
-                    {totalMembers - approvedCount > 1 ? 's' : ''}
-                  </p>
-                </div>
-                <p className="text-xs text-slate-400 mb-3 pl-5">
-                  O faturamento será gerado somente com as {approvedCount} submissões aprovadas.
-                  Deseja continuar?
-                </p>
-                <div className="flex gap-2 pl-5">
-                  <button
-                    onClick={() => exportMutation.mutate()}
-                    disabled={exportMutation.isPending}
-                    className="px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-white font-semibold rounded-lg text-xs transition-colors flex items-center gap-1.5"
-                  >
-                    {exportMutation.isPending ? <Spinner size="sm" /> : <Download size={12} />}
-                    Gerar assim mesmo
-                  </button>
-                  <button
-                    onClick={() => setConfirmExport(false)}
-                    className="px-3 py-1.5 text-slate-400 hover:text-slate-200 text-xs transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-            ))}
+          <ExportSection
+            approvedCount={approvedCount}
+            totalMembers={totalMembers}
+            isComplete={isComplete}
+            confirmExport={confirmExport}
+            onRequest={() => setConfirmExport(true)}
+            onConfirm={() => exportMutation.mutate()}
+            onCancel={() => setConfirmExport(false)}
+            isPending={exportMutation.isPending}
+          />
         </>
       )}
 

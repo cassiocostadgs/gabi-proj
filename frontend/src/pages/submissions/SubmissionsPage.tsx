@@ -28,7 +28,7 @@ const STATUS_CONFIG: Record<
   },
 }
 
-function StatusBadge({ status }: { status: SubmissionStatus }) {
+function StatusBadge({ status }: Readonly<{ status: SubmissionStatus }>) {
   const { label, icon: Icon, className } = STATUS_CONFIG[status]
   return (
     <span
@@ -81,54 +81,56 @@ export function SubmissionsPage() {
           {!isLoading && submissions && submissions.length > 0 && (
             <ul className="flex flex-col gap-3">
               {submissions.map((sub) => (
-                <li
-                  key={sub.id}
-                  role="button"
-                  onClick={() => navigate(`/submissions/${sub.id}`)}
-                  className="bg-slate-800/60 border border-slate-700 rounded-xl px-5 py-4 flex flex-col gap-2 cursor-pointer hover:border-slate-600 hover:bg-slate-800 transition-colors"
-                >
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <span className="text-sm font-semibold text-slate-100">
-                      {competenciaLabel(sub.competencia)}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={sub.status} />
-                      <ChevronRight size={14} className="text-slate-600" />
+                <li key={sub.id}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/submissions/${sub.id}`)}
+                    className="w-full text-left bg-slate-800/60 border border-slate-700 rounded-xl px-5 py-4 flex flex-col gap-2 cursor-pointer hover:border-slate-600 hover:bg-slate-800 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <span className="text-sm font-semibold text-slate-100">
+                        {competenciaLabel(sub.competencia)}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={sub.status} />
+                        <ChevronRight size={14} className="text-slate-600" />
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
-                    <span>
-                      Arquivo: <span className="text-slate-400 font-medium">{sub.ga_filename}</span>
-                    </span>
-                    <span>
-                      Horas Task:{' '}
-                      <span className="text-slate-400 font-medium">
-                        {sub.horas_task.toFixed(1)}h
-                      </span>
-                    </span>
-                    <span>
-                      Enviado em:{' '}
-                      <span className="text-slate-400 font-medium">
-                        {formatDate(sub.submitted_at)}
-                      </span>
-                    </span>
-                    {sub.reviewed_at && (
+                    <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
                       <span>
-                        Revisado em:{' '}
+                        Arquivo:{' '}
+                        <span className="text-slate-400 font-medium">{sub.ga_filename}</span>
+                      </span>
+                      <span>
+                        Horas Task:{' '}
                         <span className="text-slate-400 font-medium">
-                          {formatDate(sub.reviewed_at)}
+                          {sub.horas_task.toFixed(1)}h
                         </span>
                       </span>
-                    )}
-                  </div>
-
-                  {sub.status === 'rejected' && sub.rejection_reason && (
-                    <div className="mt-1 rounded-lg bg-red-950/40 border border-red-800/30 px-3 py-2 text-xs text-red-300">
-                      <span className="font-semibold text-red-400">Motivo: </span>
-                      {sub.rejection_reason}
+                      <span>
+                        Enviado em:{' '}
+                        <span className="text-slate-400 font-medium">
+                          {formatDate(sub.submitted_at)}
+                        </span>
+                      </span>
+                      {sub.reviewed_at && (
+                        <span>
+                          Revisado em:{' '}
+                          <span className="text-slate-400 font-medium">
+                            {formatDate(sub.reviewed_at)}
+                          </span>
+                        </span>
+                      )}
                     </div>
-                  )}
+
+                    {sub.status === 'rejected' && sub.rejection_reason && (
+                      <div className="mt-1 rounded-lg bg-red-950/40 border border-red-800/30 px-3 py-2 text-xs text-red-300">
+                        <span className="font-semibold text-red-400">Motivo: </span>
+                        {sub.rejection_reason}
+                      </div>
+                    )}
+                  </button>
                 </li>
               ))}
             </ul>

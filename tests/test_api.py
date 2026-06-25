@@ -35,6 +35,12 @@ class TestMe:
     def test_invalid_token(self, client):
         assert client.get("/auth/me", headers={"Authorization": "Bearer bad.token.here"}).status_code == 401
 
+    def test_empty_sub_token(self, client):
+        import main
+        from jose import jwt as jose_jwt
+        token = jose_jwt.encode({"sub": ""}, main.SECRET_KEY, algorithm=main.ALGORITHM)
+        assert client.get("/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+
     def test_inactive_user(self, client, auth_headers):
         import main
         with main._db() as conn:
@@ -567,6 +573,26 @@ class TestTeamMembers:
     def test_delete_not_found(self, client, auth_headers):
         assert client.delete("/api/admin/team/9999", headers=auth_headers).status_code == 404
 
+    def test_update_profile_not_found(self, client, auth_headers):
+        self._setup(client, auth_headers)
+        self._create_member(client, auth_headers)
+        member_id = client.get("/api/admin/team", headers=auth_headers).json()["members"][0]["id"]
+        resp = client.put(
+            f"/api/admin/team/{member_id}",
+            json={"cpf": "000", "subcontrato": "SUB X", "profile": "inexistente", "is_active": True},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+
+    def test_update_not_found(self, client, auth_headers):
+        client.post("/api/admin/billing-rates", json={"profile": "pleno", "valor_hora": 180.0}, headers=auth_headers)
+        resp = client.put(
+            "/api/admin/team/9999",
+            json={"cpf": "000", "subcontrato": "SUB X", "profile": "pleno", "is_active": True},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+
 
 # ── Submissions ────────────────────────────────────────────────────────────────
 
@@ -646,11 +672,52 @@ class TestSubmissions:
     def test_approve_not_found(self, client, auth_headers):
         assert client.patch("/api/admin/submissions/9999/approve", headers=auth_headers).status_code == 404
 
+    def test_approve_with_body_not_found(self, client, auth_headers):
+        resp = client.patch(
+            "/api/admin/submissions/9999/approve",
+            json={"horas_task": 160.0, "approved_snapshot": "{}"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+
     def test_reject_not_found(self, client, auth_headers):
         assert client.patch("/api/admin/submissions/9999/reject", json={"reason": ""}, headers=auth_headers).status_code == 404
 
     def test_rerun_not_found(self, client, auth_headers):
         assert client.post("/api/admin/submissions/9999/rerun", headers=auth_headers).status_code == 404
+
+    def test_preview_not_found(self, client, auth_headers):
+        assert client.get("/api/admin/submissions/9999/preview", headers=auth_headers).status_code == 404
+
+    def test_preview_file_mode_no_persons(self, client, auth_headers):
+        from unittest.mock import patch
+        self._submit(client, auth_headers)
+        sub_id = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"][0]["id"]
+        with patch("main.is_oracle_configured", return_value=False), \
+             patch("main._run_file", return_value=([], [])):
+            resp = client.get(f"/api/admin/submissions/{sub_id}/preview", headers=auth_headers)
+        assert resp.status_code == 422
+
+    def test_preview_file_mode(self, client, auth_headers):
+        from unittest.mock import patch
+        self._submit(client, auth_headers)
+        sub_id = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"][0]["id"]
+        mock_person = {"name": "Pedro Santos", "task_total": 160.0, "days": []}
+        with patch("main.is_oracle_configured", return_value=False), \
+             patch("main._run_file", return_value=([mock_person], [])):
+            resp = client.get(f"/api/admin/submissions/{sub_id}/preview", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "person" in data
+        assert data["is_immutable"] is False
+
+    def test_preview_approved_returns_immutable(self, client, auth_headers):
+        self._submit(client, auth_headers)
+        sub_id = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"][0]["id"]
+        client.patch(f"/api/admin/submissions/{sub_id}/approve", headers=auth_headers)
+        resp = client.get(f"/api/admin/submissions/{sub_id}/preview", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["is_immutable"] is True
 
     def test_rerun_file_mode(self, client, auth_headers):
         from unittest.mock import patch
@@ -675,8 +742,51 @@ class TestSubmissions:
             resp = client.post(f"/api/admin/submissions/{sub_id}/rerun", headers=auth_headers)
         assert resp.status_code == 422
 
+    def test_list_my_submissions(self, client, auth_headers):
+        self._submit(client, auth_headers)
+        resp = client.get("/api/submissions/my", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["submissions"]) == 1
+        assert data["submissions"][0]["competencia"] == "2026-05"
+
+    def test_get_my_submission(self, client, auth_headers):
+        self._submit(client, auth_headers)
+        subs = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"]
+        sub_id = subs[0]["id"]
+        resp = client.get(f"/api/submissions/{sub_id}", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["competencia"] == "2026-05"
+        assert "validation_snapshot" not in data
+
+    def test_get_my_submission_approved(self, client, auth_headers):
+        self._submit(client, auth_headers)
+        sub_id = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"][0]["id"]
+        client.patch(f"/api/admin/submissions/{sub_id}/approve", headers=auth_headers)
+        resp = client.get(f"/api/submissions/{sub_id}", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "approved"
+
+    def test_get_my_submission_not_found(self, client, auth_headers):
+        assert client.get("/api/submissions/9999", headers=auth_headers).status_code == 404
+
     def test_export_no_approved(self, client, auth_headers):
         assert client.get("/api/admin/billing/2026-05/export", headers=auth_headers).status_code == 404
+
+    def test_export_approved_with_cnpj(self, client, auth_headers):
+        client.put("/api/admin/settings/billing_cnpj", json={"value": "12345678000195"}, headers=auth_headers)
+        client.post("/api/admin/billing-rates", json={"profile": "pleno", "valor_hora": 180.0}, headers=auth_headers)
+        client.post(
+            "/api/admin/team",
+            json={"user_email": "tiagohlatki@db1.com.br", "cpf": "111.222.333-44", "subcontrato": "SUB 01", "profile": "pleno"},
+            headers=auth_headers,
+        )
+        self._submit(client, auth_headers)
+        sub_id = client.get("/api/admin/submissions", params={"competencia": "2026-05"}, headers=auth_headers).json()["submissions"][0]["id"]
+        client.patch(f"/api/admin/submissions/{sub_id}/approve", headers=auth_headers)
+        resp = client.get("/api/admin/billing/2026-05/export", headers=auth_headers)
+        assert resp.status_code == 200
 
     def test_export_approved(self, client, auth_headers):
         # Setup team member + billing rate

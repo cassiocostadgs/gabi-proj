@@ -5,7 +5,7 @@ interface SpinnerProps {
   size?: 'sm' | 'md'
 }
 
-export function Spinner({ fullscreen, size = 'md' }: SpinnerProps) {
+export function Spinner({ fullscreen, size = 'md' }: Readonly<SpinnerProps>) {
   const spinner = (
     <span
       className={cn(

@@ -21,16 +21,19 @@ function shortcuts(): { label: string; range: DateRange }[] {
   ]
 }
 
-export function DateRangePicker({ value, onChange }: Props) {
+export function DateRangePicker({ value, onChange }: Readonly<Props>) {
   const [open, setOpen] = useState(false)
 
   const isComplete = !!(value.from && value.to && value.from.getTime() !== value.to.getTime())
 
-  const label = isComplete
-    ? `${format(value.from!, 'dd/MM/yyyy')} → ${format(value.to!, 'dd/MM/yyyy')}`
-    : value.from
-      ? `${format(value.from, 'dd/MM/yyyy')} → …`
-      : 'Selecione um período'
+  let label: string
+  if (isComplete) {
+    label = `${format(value.from!, 'dd/MM/yyyy')} → ${format(value.to!, 'dd/MM/yyyy')}`
+  } else if (value.from) {
+    label = `${format(value.from, 'dd/MM/yyyy')} → …`
+  } else {
+    label = 'Selecione um período'
+  }
 
   function handleSelect(range: DateRange | undefined) {
     onChange(range ?? { from: undefined, to: undefined })
@@ -65,7 +68,7 @@ export function DateRangePicker({ value, onChange }: Props) {
         </div>
         <Calendar
           mode="range"
-          selected={value.from !== undefined ? value : undefined}
+          selected={value.from === undefined ? undefined : value}
           onSelect={handleSelect}
           defaultMonth={
             value.from

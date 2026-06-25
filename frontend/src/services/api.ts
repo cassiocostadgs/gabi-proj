@@ -15,7 +15,7 @@ api.interceptors.response.use(
   (err: unknown) => {
     if (axios.isAxiosError(err) && err.response?.status === 401) {
       localStorage.removeItem('gabi_token')
-      window.location.href = '/login'
+      globalThis.location.href = '/login'
     }
     return Promise.reject(err)
   }

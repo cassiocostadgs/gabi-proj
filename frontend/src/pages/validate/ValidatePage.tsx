@@ -53,6 +53,10 @@ function normalizeStr(s: string) {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 }
 
+const YEAR_REGEX = /(?<!\d)(20[2-9]\d)(?!\d)/
+const YYYYMM_REGEX = /(?<!\d)(20[2-9]\d)[_-](\d{2})(?!\d)/
+const MMYYYY_REGEX = /(?<!\d)(\d{2})[_-](20[2-9]\d)(?!\d)/
+
 function parseCompetencia(filename: string): string {
   const now = new Date()
   const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
@@ -61,22 +65,22 @@ function parseCompetencia(filename: string): string {
   const name = normalizeStr(filename)
 
   // (?<!\d) / (?!\d) instead of \b — \b treats underscore as word char, breaking _2026_03_ patterns
-  const yearMatch = name.match(/(?<!\d)(20[2-9]\d)(?!\d)/)
+  const yearMatch = YEAR_REGEX.exec(name)
   const year = yearMatch?.[1] ?? prevYear
 
   for (const [ptName, num] of Object.entries(MONTHS_PT)) {
     if (name.includes(normalizeStr(ptName))) return `${year}-${num}`
   }
 
-  const yyyymmMatch = name.match(/(?<!\d)(20[2-9]\d)[_-](\d{2})(?!\d)/)
+  const yyyymmMatch = YYYYMM_REGEX.exec(name)
   if (yyyymmMatch) {
-    const m = parseInt(yyyymmMatch[2], 10)
+    const m = Number.parseInt(yyyymmMatch[2], 10)
     if (m >= 1 && m <= 12) return `${yyyymmMatch[1]}-${yyyymmMatch[2]}`
   }
 
-  const mmyyyyMatch = name.match(/(?<!\d)(\d{2})[_-](20[2-9]\d)(?!\d)/)
+  const mmyyyyMatch = MMYYYY_REGEX.exec(name)
   if (mmyyyyMatch) {
-    const m = parseInt(mmyyyyMatch[1], 10)
+    const m = Number.parseInt(mmyyyyMatch[1], 10)
     if (m >= 1 && m <= 12) return `${mmyyyyMatch[2]}-${mmyyyyMatch[1]}`
   }
 
@@ -92,7 +96,7 @@ function monthDateRange(competencia: string) {
   }
 }
 
-function SpreadsheetIcon({ className }: { className?: string }) {
+function SpreadsheetIcon({ className }: Readonly<{ className?: string }>) {
   return (
     <svg
       width="26"
@@ -119,6 +123,286 @@ function SpreadsheetIcon({ className }: { className?: string }) {
       <line x1="14" y1="7" x2="14" y2="25" stroke="white" strokeWidth="1.2" strokeOpacity="0.5" />
       <rect x="7" y="7" width="7" height="6" rx="1.5" fill="white" fillOpacity="0.25" />
     </svg>
+  )
+}
+
+interface MonthPickerProps {
+  pickerYear: number
+  selectedCompetencia: string
+  onYearChange: (delta: number) => void
+  onMonthSelect: (competencia: string) => void
+}
+
+function MonthPicker({
+  pickerYear,
+  selectedCompetencia,
+  onYearChange,
+  onMonthSelect,
+}: Readonly<MonthPickerProps>) {
+  const parts = selectedCompetencia.split('-')
+  const selYear = parts[0] ? Number.parseInt(parts[0], 10) : null
+  const selMonth = parts[1] ? Number.parseInt(parts[1], 10) : null
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <button
+          onClick={() => onYearChange(-1)}
+          className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <span className="text-sm font-semibold text-slate-200">{pickerYear}</span>
+        <button
+          onClick={() => onYearChange(1)}
+          className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {MONTH_ABBR.map((abbr, i) => {
+          const monthNum = i + 1
+          const isSelected = selYear === pickerYear && selMonth === monthNum
+          return (
+            <button
+              key={abbr}
+              onClick={() => {
+                onMonthSelect(`${pickerYear}-${String(monthNum).padStart(2, '0')}`)
+              }}
+              className={`py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                isSelected
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+              }`}
+            >
+              {abbr}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+interface CompetenciaModalProps {
+  pendingFiles: File[]
+  modalCompetencia: string
+  modalPickerYear: number
+  showModalPicker: boolean
+  onPickerYearChange: (delta: number) => void
+  onMonthSelect: (competencia: string) => void
+  onTogglePicker: () => void
+  onConfirm: () => void
+  onCancel: () => void
+}
+
+function CompetenciaModal({
+  pendingFiles,
+  modalCompetencia,
+  modalPickerYear,
+  showModalPicker,
+  onPickerYearChange,
+  onMonthSelect,
+  onTogglePicker,
+  onConfirm,
+  onCancel,
+}: Readonly<CompetenciaModalProps>) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <button
+        className="absolute inset-0 bg-black/60 cursor-default border-0"
+        onClick={onCancel}
+        aria-label="Fechar modal"
+      />
+      <div className="relative bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-sm mx-4 shadow-xl">
+        <h3 className="text-sm font-semibold text-slate-200 mb-1">Confirmar competência</h3>
+        <p className="text-xs text-slate-500 mb-4 truncate">
+          {pendingFiles.length === 1
+            ? pendingFiles[0].name
+            : `${pendingFiles.length} arquivos selecionados`}
+        </p>
+
+        <p className="text-xs font-medium text-slate-400 mb-1.5">Competência</p>
+        <button
+          onClick={onTogglePicker}
+          className={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-100 border transition-colors mb-2 ${
+            showModalPicker
+              ? 'bg-slate-900 border-indigo-500'
+              : 'bg-slate-900 border-slate-600 hover:border-indigo-500'
+          }`}
+        >
+          <span>{competenciaLabel(modalCompetencia)}</span>
+          <Pencil size={12} className="text-slate-500 shrink-0 ml-2" />
+        </button>
+
+        {showModalPicker && (
+          <div className="mb-4">
+            <MonthPicker
+              pickerYear={modalPickerYear}
+              selectedCompetencia={modalCompetencia}
+              onYearChange={(delta) => onPickerYearChange(delta)}
+              onMonthSelect={(comp) => {
+                onMonthSelect(comp)
+              }}
+            />
+          </div>
+        )}
+
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={!modalCompetencia}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition-colors flex items-center gap-2"
+          >
+            <Check size={14} />
+            Confirmar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface DropZoneProps {
+  gaFiles: File[]
+  dragOver: boolean
+  fileInputRef: React.RefObject<HTMLInputElement | null>
+  onFilesPicked: (files: FileList | File[]) => void
+  onDragOver: () => void
+  onDragLeave: () => void
+  onRemoveAll: () => void
+  onRemoveFile: (i: number) => void
+}
+
+function DropZone({
+  gaFiles,
+  dragOver,
+  fileInputRef,
+  onFilesPicked,
+  onDragOver,
+  onDragLeave,
+  onRemoveAll,
+  onRemoveFile,
+}: Readonly<DropZoneProps>) {
+  const hasFiles = gaFiles.length > 0
+
+  let dropZoneBorderClass: string
+  if (hasFiles) {
+    dropZoneBorderClass = 'border-emerald-600/60 border-solid bg-emerald-950/50 cursor-default'
+  } else if (dragOver) {
+    dropZoneBorderClass = 'border-indigo-500 border-dashed bg-indigo-500/10 cursor-pointer'
+  } else {
+    dropZoneBorderClass =
+      'border-slate-700 border-dashed bg-slate-800/60 hover:border-indigo-500 hover:bg-indigo-500/5 cursor-pointer'
+  }
+
+  let iconBgClass: string
+  if (hasFiles) {
+    iconBgClass = 'bg-emerald-900/60'
+  } else if (dragOver) {
+    iconBgClass = 'bg-indigo-500/15'
+  } else {
+    iconBgClass = 'bg-slate-700'
+  }
+
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault()
+    onDragLeave()
+    onFilesPicked(e.dataTransfer.files)
+  }
+
+  return (
+    <div>
+      <div className="mb-1.5">
+        <p className="text-xs font-medium text-slate-400">Arquivo GA</p>
+      </div>
+
+      <button
+        className={`relative border-2 rounded-xl px-6 py-10 text-center transition-all flex flex-col items-center gap-2.5 w-full ${dropZoneBorderClass}`}
+        onClick={hasFiles ? undefined : () => fileInputRef.current?.click()}
+        onKeyDown={(e) => !hasFiles && e.key === 'Enter' && fileInputRef.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault()
+          onDragOver()
+        }}
+        onDragLeave={onDragLeave}
+        onDrop={handleDrop}
+        aria-label={hasFiles ? undefined : 'Selecionar arquivo GA'}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xls,.xlsx"
+          multiple
+          className="hidden"
+          onChange={(e) => e.target.files && onFilesPicked(e.target.files)}
+        />
+
+        {hasFiles && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onRemoveAll()
+            }}
+            className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center rounded-md text-slate-500 hover:text-red-400 hover:bg-red-950/60 transition-colors"
+            title="Remover arquivo"
+          >
+            <X size={14} />
+          </button>
+        )}
+
+        <div
+          className={`w-11 h-11 rounded-xl flex items-center justify-center transition-colors ${iconBgClass}`}
+        >
+          <SpreadsheetIcon />
+        </div>
+
+        {hasFiles ? (
+          <>
+            <p className="text-sm font-medium text-emerald-400 truncate max-w-[320px]">
+              {gaFiles[0].name}
+              {gaFiles.length > 1 && ` +${gaFiles.length - 1}`}
+            </p>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              Clique para trocar
+            </button>
+          </>
+        ) : (
+          <p className="text-sm font-medium text-slate-200">
+            Clique para selecionar, ou arraste o relatório do GA (.xls)
+          </p>
+        )}
+      </button>
+
+      {gaFiles.length > 1 && (
+        <ul className="mt-2 space-y-1.5">
+          {gaFiles.map((f) => (
+            <li
+              key={f.name}
+              className="flex items-center gap-3 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2"
+            >
+              <p className="text-xs text-slate-300 truncate flex-1">{f.name}</p>
+              <button
+                onClick={() => onRemoveFile(gaFiles.indexOf(f))}
+                className="text-slate-600 hover:text-red-400 transition-colors"
+              >
+                <X size={13} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
 
@@ -219,15 +503,9 @@ export function ValidatePage() {
     const comp = parseCompetencia(arr[0].name)
     setPendingFiles(arr)
     setModalCompetencia(comp)
-    setModalPickerYear(parseInt(comp.split('-')[0], 10))
+    setModalPickerYear(Number.parseInt(comp.split('-')[0], 10))
     setShowModalPicker(false)
     setShowModal(true)
-  }
-
-  const handleDrop = (e: DragEvent) => {
-    e.preventDefault()
-    setDragOver(false)
-    handleFilesPicked(e.dataTransfer.files)
   }
 
   function handleModalConfirm() {
@@ -255,8 +533,12 @@ export function ValidatePage() {
     })
   }
 
-  const selEditYear = selectedCompetencia ? parseInt(selectedCompetencia.split('-')[0], 10) : null
-  const selEditMonth = selectedCompetencia ? parseInt(selectedCompetencia.split('-')[1], 10) : null
+  const selEditYear = selectedCompetencia
+    ? Number.parseInt(selectedCompetencia.split('-')[0], 10)
+    : null
+  const selEditMonth = selectedCompetencia
+    ? Number.parseInt(selectedCompetencia.split('-')[1], 10)
+    : null
 
   function btnLabel() {
     if (mutation.isPending) return null
@@ -264,6 +546,14 @@ export function ValidatePage() {
     if (!gaFiles.length) return 'Selecione um arquivo GA para continuar'
     return 'Validar apontamentos'
   }
+
+  const taskBadgeClass = oracleAvailable
+    ? 'border-emerald-500/25 bg-emerald-500/6 text-slate-400'
+    : 'border-amber-500/30 bg-amber-500/8 text-amber-400'
+
+  const taskDotClass = oracleAvailable
+    ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.22)]'
+    : 'bg-amber-400 shadow-[0_0_0_2px_rgba(234,179,8,0.22)]'
 
   return (
     <Layout>
@@ -274,19 +564,9 @@ export function ValidatePage() {
             <div className="flex items-center justify-between gap-3">
               <h1 className="text-lg font-semibold text-slate-100">Validar apontamentos</h1>
               <div
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs font-medium shrink-0 ${
-                  oracleAvailable
-                    ? 'border-emerald-500/25 bg-emerald-500/6 text-slate-400'
-                    : 'border-amber-500/30 bg-amber-500/8 text-amber-400'
-                }`}
+                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs font-medium shrink-0 ${taskBadgeClass}`}
               >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                    oracleAvailable
-                      ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.22)]'
-                      : 'bg-amber-400 shadow-[0_0_0_2px_rgba(234,179,8,0.22)]'
-                  }`}
-                />
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${taskDotClass}`} />
                 {oracleAvailable ? 'Task DB · conectado' : 'Task DB · indisponível'}
               </div>
             </div>
@@ -296,111 +576,19 @@ export function ValidatePage() {
           </div>
 
           {/* Drop zone */}
-          <div>
-            {/* Label */}
-            <div className="mb-1.5">
-              <p className="text-xs font-medium text-slate-400">Arquivo GA</p>
-            </div>
-
-            {/* Dropzone */}
-            <div
-              className={`relative border-2 rounded-xl px-6 py-10 text-center transition-all flex flex-col items-center gap-2.5 ${
-                gaFiles.length > 0
-                  ? 'border-emerald-600/60 border-solid bg-emerald-950/50 cursor-default'
-                  : dragOver
-                    ? 'border-indigo-500 border-dashed bg-indigo-500/10 cursor-pointer'
-                    : 'border-slate-700 border-dashed bg-slate-800/60 hover:border-indigo-500 hover:bg-indigo-500/5 cursor-pointer'
-              }`}
-              role={gaFiles.length > 0 ? undefined : 'button'}
-              tabIndex={gaFiles.length > 0 ? undefined : 0}
-              onClick={gaFiles.length > 0 ? undefined : () => fileInputRef.current?.click()}
-              onKeyDown={(e) =>
-                gaFiles.length === 0 && e.key === 'Enter' && fileInputRef.current?.click()
-              }
-              onDragOver={(e) => {
-                e.preventDefault()
-                setDragOver(true)
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleDrop}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xls,.xlsx"
-                multiple
-                className="hidden"
-                onChange={(e) => e.target.files && handleFilesPicked(e.target.files)}
-              />
-
-              {/* X button — só quando tem arquivo */}
-              {gaFiles.length > 0 && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    gaFiles.forEach((_, i) => removeFile(i))
-                    setGaFiles([])
-                    setSelectedCompetencia(undefined)
-                  }}
-                  className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center rounded-md text-slate-500 hover:text-red-400 hover:bg-red-950/60 transition-colors"
-                  title="Remover arquivo"
-                >
-                  <X size={14} />
-                </button>
-              )}
-
-              <div
-                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-colors ${
-                  gaFiles.length > 0
-                    ? 'bg-emerald-900/60'
-                    : dragOver
-                      ? 'bg-indigo-500/15'
-                      : 'bg-slate-700'
-                }`}
-              >
-                <SpreadsheetIcon />
-              </div>
-
-              {gaFiles.length > 0 ? (
-                <>
-                  <p className="text-sm font-medium text-emerald-400 truncate max-w-[320px]">
-                    {gaFiles[0].name}
-                    {gaFiles.length > 1 && ` +${gaFiles.length - 1}`}
-                  </p>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                  >
-                    Clique para trocar
-                  </button>
-                </>
-              ) : (
-                <p className="text-sm font-medium text-slate-200">
-                  Clique para selecionar, ou arraste o relatório do GA (.xls)
-                </p>
-              )}
-            </div>
-
-            {/* File list (when multiple) */}
-            {gaFiles.length > 1 && (
-              <ul className="mt-2 space-y-1.5">
-                {gaFiles.map((f, i) => (
-                  <li
-                    key={i}
-                    className="flex items-center gap-3 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2"
-                  >
-                    <p className="text-xs text-slate-300 truncate flex-1">{f.name}</p>
-                    <button
-                      onClick={() => removeFile(i)}
-                      className="text-slate-600 hover:text-red-400 transition-colors"
-                    >
-                      <X size={13} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <DropZone
+            gaFiles={gaFiles}
+            dragOver={dragOver}
+            fileInputRef={fileInputRef}
+            onFilesPicked={handleFilesPicked}
+            onDragOver={() => setDragOver(true)}
+            onDragLeave={() => setDragOver(false)}
+            onRemoveAll={() => {
+              setGaFiles([])
+              setSelectedCompetencia(undefined)
+            }}
+            onRemoveFile={removeFile}
+          />
 
           {/* Competência picker */}
           {selectedCompetencia && (
@@ -409,7 +597,7 @@ export function ValidatePage() {
               <button
                 onClick={() => {
                   if (!showEditPicker)
-                    setEditPickerYear(parseInt(selectedCompetencia.split('-')[0], 10))
+                    setEditPickerYear(Number.parseInt(selectedCompetencia.split('-')[0], 10))
                   setShowEditPicker((v) => !v)
                 }}
                 className={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-100 border transition-colors ${
@@ -424,45 +612,15 @@ export function ValidatePage() {
 
               {showEditPicker && (
                 <div className="mt-2">
-                  <div className="flex items-center justify-between mb-2">
-                    <button
-                      onClick={() => setEditPickerYear((y) => y - 1)}
-                      className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
-                    >
-                      <ChevronLeft size={16} />
-                    </button>
-                    <span className="text-sm font-semibold text-slate-200">{editPickerYear}</span>
-                    <button
-                      onClick={() => setEditPickerYear((y) => y + 1)}
-                      className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
-                    >
-                      <ChevronRight size={16} />
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {MONTH_ABBR.map((abbr, i) => {
-                      const monthNum = i + 1
-                      const isSelected = selEditYear === editPickerYear && selEditMonth === monthNum
-                      return (
-                        <button
-                          key={abbr}
-                          onClick={() => {
-                            setSelectedCompetencia(
-                              `${editPickerYear}-${String(monthNum).padStart(2, '0')}`
-                            )
-                            setShowEditPicker(false)
-                          }}
-                          className={`py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                            isSelected
-                              ? 'bg-indigo-600 text-white'
-                              : 'text-slate-400 hover:bg-slate-700 hover:text-slate-200'
-                          }`}
-                        >
-                          {abbr}
-                        </button>
-                      )
-                    })}
-                  </div>
+                  <MonthPicker
+                    pickerYear={editPickerYear}
+                    selectedCompetencia={`${selEditYear}-${String(selEditMonth).padStart(2, '0')}`}
+                    onYearChange={(delta) => setEditPickerYear((y) => y + delta)}
+                    onMonthSelect={(comp) => {
+                      setSelectedCompetencia(comp)
+                      setShowEditPicker(false)
+                    }}
+                  />
                 </div>
               )}
             </div>
@@ -560,103 +718,24 @@ export function ValidatePage() {
 
       {/* Competência modal */}
       {showModal && pendingFiles.length > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60" onClick={handleModalCancel} />
-          <div className="relative bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-sm mx-4 shadow-xl">
-            <h3 className="text-sm font-semibold text-slate-200 mb-1">Confirmar competência</h3>
-            <p className="text-xs text-slate-500 mb-4 truncate">
-              {pendingFiles.length === 1
-                ? pendingFiles[0].name
-                : `${pendingFiles.length} arquivos selecionados`}
-            </p>
-
-            <p className="text-xs font-medium text-slate-400 mb-1.5">Competência</p>
-            <button
-              onClick={() => {
-                if (!showModalPicker)
-                  setModalPickerYear(parseInt(modalCompetencia.split('-')[0], 10))
-                setShowModalPicker((v) => !v)
-              }}
-              className={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-100 border transition-colors mb-2 ${
-                showModalPicker
-                  ? 'bg-slate-900 border-indigo-500'
-                  : 'bg-slate-900 border-slate-600 hover:border-indigo-500'
-              }`}
-            >
-              <span>{competenciaLabel(modalCompetencia)}</span>
-              <Pencil size={12} className="text-slate-500 shrink-0 ml-2" />
-            </button>
-
-            {showModalPicker &&
-              (() => {
-                const selParts = modalCompetencia.split('-')
-                const selYear = selParts[0] ? parseInt(selParts[0], 10) : null
-                const selMonth = selParts[1] ? parseInt(selParts[1], 10) : null
-                return (
-                  <div className="mb-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <button
-                        onClick={() => setModalPickerYear((y) => y - 1)}
-                        className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
-                      >
-                        <ChevronLeft size={16} />
-                      </button>
-                      <span className="text-sm font-semibold text-slate-200">
-                        {modalPickerYear}
-                      </span>
-                      <button
-                        onClick={() => setModalPickerYear((y) => y + 1)}
-                        className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
-                      >
-                        <ChevronRight size={16} />
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {MONTH_ABBR.map((abbr, i) => {
-                        const monthNum = i + 1
-                        const isSelected = selYear === modalPickerYear && selMonth === monthNum
-                        return (
-                          <button
-                            key={abbr}
-                            onClick={() => {
-                              setModalCompetencia(
-                                `${modalPickerYear}-${String(monthNum).padStart(2, '0')}`
-                              )
-                              setShowModalPicker(false)
-                            }}
-                            className={`py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                              isSelected
-                                ? 'bg-indigo-600 text-white'
-                                : 'text-slate-400 hover:bg-slate-700 hover:text-slate-200'
-                            }`}
-                          >
-                            {abbr}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })()}
-
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={handleModalCancel}
-                className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleModalConfirm}
-                disabled={!modalCompetencia}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition-colors flex items-center gap-2"
-              >
-                <Check size={14} />
-                Confirmar
-              </button>
-            </div>
-          </div>
-        </div>
+        <CompetenciaModal
+          pendingFiles={pendingFiles}
+          modalCompetencia={modalCompetencia}
+          modalPickerYear={modalPickerYear}
+          showModalPicker={showModalPicker}
+          onPickerYearChange={(delta) => setModalPickerYear((y) => y + delta)}
+          onMonthSelect={(comp) => {
+            setModalCompetencia(comp)
+            setShowModalPicker(false)
+          }}
+          onTogglePicker={() => {
+            if (!showModalPicker)
+              setModalPickerYear(Number.parseInt(modalCompetencia.split('-')[0], 10))
+            setShowModalPicker((v) => !v)
+          }}
+          onConfirm={handleModalConfirm}
+          onCancel={handleModalCancel}
+        />
       )}
     </Layout>
   )

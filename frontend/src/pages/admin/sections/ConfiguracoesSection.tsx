@@ -21,14 +21,14 @@ function floatToValor(valor: number): string {
 function handleValorChange(raw: string): string {
   const digits = raw.replace(/\D/g, '')
   if (!digits) return ''
-  return (parseInt(digits, 10) / 100).toLocaleString('pt-BR', {
+  return (Number.parseInt(digits, 10) / 100).toLocaleString('pt-BR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
 }
 
 function parseValor(str: string): number {
-  return parseFloat(str.replace(/\./g, '').replace(',', '.'))
+  return Number.parseFloat(str.replace(/\./g, '').replace(',', '.'))
 }
 
 export function ConfiguracoesSection() {
@@ -107,11 +107,15 @@ export function ConfiguracoesSection() {
           <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">Empresa</h2>
         </div>
         <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 max-w-sm">
-          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+          <label
+            htmlFor="cnpj-input"
+            className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5"
+          >
             CNPJ
           </label>
           <div className="flex gap-2">
             <input
+              id="cnpj-input"
               type="text"
               value={cnpj}
               onChange={(e) => {

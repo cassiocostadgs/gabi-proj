@@ -108,7 +108,11 @@ const WEEKDAY_NAMES = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábad
 
 function parseDate(dateStr: string): { dd: number; mm: number; yyyy: number } {
   const parts = dateStr.split('/')
-  return { dd: parseInt(parts[0], 10), mm: parseInt(parts[1], 10), yyyy: parseInt(parts[2], 10) }
+  return {
+    dd: Number.parseInt(parts[0], 10),
+    mm: Number.parseInt(parts[1], 10),
+    yyyy: Number.parseInt(parts[2], 10),
+  }
 }
 
 function weekdayName(dateStr: string): string {
@@ -131,17 +135,16 @@ function buildCalendarGrid(days: DayResult[]): CalendarCell[][] {
 
   const daysInMonth = new Date(yyyy, mm, 0).getDate()
   const weeks: CalendarCell[][] = []
-  let week: CalendarCell[] = Array(7).fill(null)
-  let weekHasData = false
+  let week: CalendarCell[] = new Array(7).fill(null)
+  let hasStartedWeek = false
 
   for (let d = 1; d <= daysInMonth; d++) {
     const jsDay = new Date(yyyy, mm - 1, d).getDay()
     const col = (jsDay + 6) % 7
 
-    if (col === 0 && weekHasData) {
+    if (col === 0 && hasStartedWeek) {
       weeks.push([...week])
-      week = Array(7).fill(null)
-      weekHasData = false
+      week = new Array(7).fill(null)
     }
 
     const idx = byDay.get(d)
@@ -152,10 +155,10 @@ function buildCalendarGrid(days: DayResult[]): CalendarCell[][] {
     } else if (isWeekend) {
       week[col] = { type: 'empty-weekend', dd: d }
     }
-    weekHasData = true
+    hasStartedWeek = true
   }
 
-  if (weekHasData) weeks.push([...week])
+  if (hasStartedWeek) weeks.push([...week])
   return weeks
 }
 
@@ -194,11 +197,11 @@ function CalendarHeatmap({
   days,
   selectedIdx,
   onSelect,
-}: {
+}: Readonly<{
   days: DayResult[]
   selectedIdx: number | null
   onSelect: (idx: number | null) => void
-}) {
+}>) {
   const grid = buildCalendarGrid(days)
 
   return (
@@ -215,44 +218,52 @@ function CalendarHeatmap({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        {grid.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-7 gap-1.5">
-            {week.map((cell, ci) => {
-              if (!cell) return <div key={ci} className="w-14 h-14" />
+        {grid.map((week) => {
+          const weekId =
+            week.find((c) => c?.type === 'data')?.day.date ??
+            week.find((c) => c?.type === 'empty-weekend')?.dd.toString() ??
+            'filler'
+          return (
+            <div key={weekId} className="grid grid-cols-7 gap-1.5">
+              {week.map((cell, ci) => {
+                if (!cell) return <div key={CAL_HEADERS[ci]} className="w-14 h-14" />
 
-              if (cell.type === 'empty-weekend') {
+                if (cell.type === 'empty-weekend') {
+                  return (
+                    <div
+                      key={`weekend-${cell.dd}`}
+                      className="w-14 h-14 rounded-xl flex items-center justify-center text-sm font-medium text-slate-700 bg-slate-900/20 border border-slate-800/30"
+                    >
+                      {cell.dd}
+                    </div>
+                  )
+                }
+
+                const { idx, day } = cell
+                const selected = idx === selectedIdx
+                const hasIssues = day.rules.length > 0
+
                 return (
-                  <div
-                    key={ci}
-                    className="w-14 h-14 rounded-xl flex items-center justify-center text-sm font-medium text-slate-700 bg-slate-900/20 border border-slate-800/30"
+                  <button
+                    key={`day-${day.date}`}
+                    className={dataCellClasses(day.status, selected)}
+                    onClick={() => onSelect(selected ? null : idx)}
+                    title={
+                      hasIssues
+                        ? day.rules.map((r: string) => RULE_LABELS[r] ?? r).join(', ')
+                        : 'OK'
+                    }
                   >
-                    {cell.dd}
-                  </div>
+                    <span>{Number.parseInt(day.date.substring(0, 2), 10)}</span>
+                    {hasIssues && (
+                      <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+                    )}
+                  </button>
                 )
-              }
-
-              const { idx, day } = cell
-              const selected = idx === selectedIdx
-              const hasIssues = day.rules.length > 0
-
-              return (
-                <button
-                  key={ci}
-                  className={dataCellClasses(day.status, selected)}
-                  onClick={() => onSelect(selected ? null : idx)}
-                  title={
-                    hasIssues ? day.rules.map((r: string) => RULE_LABELS[r] ?? r).join(', ') : 'OK'
-                  }
-                >
-                  <span>{parseInt(day.date.substring(0, 2), 10)}</span>
-                  {hasIssues && (
-                    <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-current opacity-80" />
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        ))}
+              })}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -263,12 +274,12 @@ function DayDetailPanel({
   issues,
   selectedIdx,
   onNavigate,
-}: {
+}: Readonly<{
   days: DayResult[]
   issues: Issue[]
   selectedIdx: number | null
   onNavigate: (idx: number) => void
-}) {
+}>) {
   const issueDayIdxs = days.map((d, i) => (d.rules.length > 0 ? i : -1)).filter((i) => i >= 0)
 
   if (selectedIdx === null) {
@@ -334,10 +345,10 @@ function DayDetailPanel({
           </div>
         ) : (
           <div className="space-y-2.5">
-            {dayIssues.map((iss, i) => {
+            {dayIssues.map((iss) => {
               const dotCls = RULE_DOT_COLOR[iss.rule] ?? 'bg-slate-400'
               return (
-                <div key={i} className="flex gap-2 items-start">
+                <div key={`${iss.date}-${iss.rule}`} className="flex gap-2 items-start">
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1.5 ${dotCls}`} />
                   <div>
                     <div className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
@@ -408,7 +419,7 @@ function isEmptyNonWorkday(d: DayResult): boolean {
 
 const GA_BAR_COLOR = 'rgba(99,102,241,0.88)'
 
-export function PersonChart({ days }: { days: DayResult[] }) {
+export function PersonChart({ days }: Readonly<{ days: DayResult[] }>) {
   const mouseYRef = useRef(0)
   const chartContainerRef = useRef<HTMLDivElement>(null)
 
@@ -515,6 +526,7 @@ export function PersonChart({ days }: { days: DayResult[] }) {
     <div className="bg-slate-900 rounded-lg p-3 mb-4">
       <div
         ref={chartContainerRef}
+        aria-hidden="true"
         style={{ height: 300, position: 'relative' }}
         onMouseMove={(e) => {
           const rect = chartContainerRef.current?.getBoundingClientRect()
@@ -549,7 +561,7 @@ export function PersonChart({ days }: { days: DayResult[] }) {
               tooltip: {
                 enabled: false,
                 external: (context) => {
-                  const chart = context.chart as ChartJS
+                  const chart = context.chart
                   const tooltip = context.tooltip
                   const el = getOrCreateTooltip(chart)
                   if (tooltip.opacity === 0) {
@@ -654,7 +666,7 @@ export function PersonChart({ days }: { days: DayResult[] }) {
   )
 }
 
-function RuleChip({ rule, label }: { rule: string; label: string }) {
+function RuleChip({ rule, label }: Readonly<{ rule: string; label: string }>) {
   const Icon = RULE_ICON[rule]
   return (
     <span
@@ -666,7 +678,7 @@ function RuleChip({ rule, label }: { rule: string; label: string }) {
   )
 }
 
-export function RuleBadge({ rule }: { rule: string }) {
+export function RuleBadge({ rule }: Readonly<{ rule: string }>) {
   const Icon = RULE_ICON[rule]
   return (
     <span
@@ -678,21 +690,22 @@ export function RuleBadge({ rule }: { rule: string }) {
   )
 }
 
-export function PersonCard({ person }: { person: Person }) {
+export function PersonCard({ person }: Readonly<{ person: Person }>) {
   const [open, setOpen] = useState(true)
   const [selectedDayIdx, setSelectedDayIdx] = useState<number | null>(null)
   const [tableOpen, setTableOpen] = useState(false)
   const presentRules = new Set(person.issues.map((i) => i.rule))
   const hasAnyError = person.errors_count > 0 || !person.mensal_ok
-  const borderCls = hasAnyError
-    ? 'border-red-800'
-    : presentRules.has('R2')
-      ? 'border-indigo-800'
-      : presentRules.has('R0')
-        ? 'border-amber-800'
-        : presentRules.has('R4')
-          ? 'border-purple-800'
-          : 'border-slate-700'
+
+  function resolveBorderCls(): string {
+    if (hasAnyError) return 'border-red-800'
+    if (presentRules.has('R2')) return 'border-indigo-800'
+    if (presentRules.has('R0')) return 'border-amber-800'
+    if (presentRules.has('R4')) return 'border-purple-800'
+    return 'border-slate-700'
+  }
+
+  const borderCls = resolveBorderCls()
 
   return (
     <div className={`border rounded-xl mb-3 overflow-hidden ${borderCls}`}>
@@ -748,11 +761,12 @@ export function PersonCard({ person }: { person: Person }) {
               person.monthly_limit > 0
                 ? ((person.ga_total / person.monthly_limit) * 100).toFixed(1)
                 : '0.0'
-            const limiteCls = !person.mensal_ok
-              ? 'text-red-400'
-              : parseFloat(pct) > 90
-                ? 'text-amber-400'
-                : 'text-green-400'
+            let limiteCls: string
+            if (person.mensal_ok) {
+              limiteCls = Number.parseFloat(pct) > 90 ? 'text-amber-400' : 'text-green-400'
+            } else {
+              limiteCls = 'text-red-400'
+            }
             return (
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">

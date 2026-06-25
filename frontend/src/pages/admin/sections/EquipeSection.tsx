@@ -104,10 +104,14 @@ export function EquipeSection() {
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+            <label
+              htmlFor="equipe-usuario"
+              className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5"
+            >
               Usuário
             </label>
             <select
+              id="equipe-usuario"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -122,10 +126,14 @@ export function EquipeSection() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+            <label
+              htmlFor="equipe-perfil"
+              className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5"
+            >
               Perfil
             </label>
             <select
+              id="equipe-perfil"
               value={profile}
               onChange={(e) => setProfile(e.target.value)}
               required
@@ -140,10 +148,14 @@ export function EquipeSection() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+            <label
+              htmlFor="equipe-cpf"
+              className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5"
+            >
               CPF
             </label>
             <input
+              id="equipe-cpf"
               type="text"
               value={cpf}
               onChange={(e) => setCpf(formatCpf(e.target.value))}
@@ -153,10 +165,14 @@ export function EquipeSection() {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+            <label
+              htmlFor="equipe-subcontrato"
+              className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5"
+            >
               Subcontrato
             </label>
             <input
+              id="equipe-subcontrato"
               type="text"
               value={subcontrato}
               onChange={(e) => setSubcontrato(e.target.value)}

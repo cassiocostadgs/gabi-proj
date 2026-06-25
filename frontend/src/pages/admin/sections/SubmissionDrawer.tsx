@@ -29,7 +29,7 @@ interface Props {
   onActionDone: () => void
 }
 
-export function SubmissionDrawer({ submission, onClose, onActionDone }: Props) {
+export function SubmissionDrawer({ submission, onClose, onActionDone }: Readonly<Props>) {
   const qc = useQueryClient()
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
@@ -62,8 +62,8 @@ export function SubmissionDrawer({ submission, onClose, onActionDone }: Props) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
+    globalThis.addEventListener('keydown', handler)
+    return () => globalThis.removeEventListener('keydown', handler)
   }, [onClose])
 
   const current = data?.person
@@ -74,7 +74,12 @@ export function SubmissionDrawer({ submission, onClose, onActionDone }: Props) {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+      <button
+        type="button"
+        aria-label="Fechar"
+        className="fixed inset-0 bg-black/50 z-40 cursor-default"
+        onClick={onClose}
+      />
 
       <div
         className={`fixed right-0 top-0 h-full w-full max-w-3xl bg-slate-900 border-l border-slate-700 z-50 flex flex-col shadow-2xl ${borderCls}`}
@@ -112,7 +117,7 @@ export function SubmissionDrawer({ submission, onClose, onActionDone }: Props) {
 
           {error && (
             <div className="bg-red-950 border border-red-800 rounded-xl px-4 py-3 text-xs text-red-300">
-              Erro ao carregar: {(error as Error).message}
+              Erro ao carregar: {error?.message}
             </div>
           )}
 

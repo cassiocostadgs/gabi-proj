@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { competenciaLabel, fmtHours, diffClass } from './format'
+import { competenciaLabel, competenciaShort, fmtDatetime, fmtHours, diffClass } from './format'
 
 describe('competenciaLabel', () => {
   it('formats january correctly', () => {
@@ -26,6 +26,48 @@ describe('fmtHours', () => {
 
   it('formats zero', () => {
     expect(fmtHours(0)).toBe('0.00h')
+  })
+})
+
+describe('competenciaShort', () => {
+  it('formats january correctly', () => {
+    expect(competenciaShort('2025-01')).toBe('Jan/25')
+  })
+
+  it('formats december correctly', () => {
+    expect(competenciaShort('2024-12')).toBe('Dez/24')
+  })
+
+  it('formats all months via short names', () => {
+    const expected = [
+      'Jan',
+      'Fev',
+      'Mar',
+      'Abr',
+      'Mai',
+      'Jun',
+      'Jul',
+      'Ago',
+      'Set',
+      'Out',
+      'Nov',
+      'Dez',
+    ]
+    expected.forEach((abbr, i) => {
+      const month = String(i + 1).padStart(2, '0')
+      expect(competenciaShort(`2025-${month}`)).toBe(`${abbr}/25`)
+    })
+  })
+})
+
+describe('fmtDatetime', () => {
+  it('returns empty string for empty input', () => {
+    expect(fmtDatetime('')).toBe('')
+  })
+
+  it('formats an ISO datetime string', () => {
+    const result = fmtDatetime('2025-06-15 10:30:00')
+    expect(result).toMatch(/\d{2}\/\d{2}\/\d{4}/)
   })
 })
 
