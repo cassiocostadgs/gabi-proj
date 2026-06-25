@@ -1061,7 +1061,10 @@ async def export_billing(competencia: str, _: AdminUser):
                 s.nome_profissional,
                 COALESCE(
                     json_extract(s.approved_snapshot,    '$.ga_total'),
-                    json_extract(s.validation_snapshot,  '$.ga_total')
+                    json_extract(s.validation_snapshot,  '$.ga_total'),
+                    json_extract(s.approved_snapshot,    '$.task_total'),
+                    json_extract(s.validation_snapshot,  '$.task_total'),
+                    s.horas_task
                 ) AS horas_ga,
                 s.competencia,
                 tm.cpf,
@@ -1101,8 +1104,8 @@ async def export_billing(competencia: str, _: AdminUser):
         )
 
     comp_label = _competencia_label(competencia)
-    total_horas = sum(row["horas_ga"] for row in rows)
-    total_nf = round(sum(row["horas_ga"] * row["valor_hora"] for row in rows), 2)
+    total_horas = sum((row["horas_ga"] or 0) for row in rows)
+    total_nf = round(sum((row["horas_ga"] or 0) * row["valor_hora"] for row in rows), 2)
 
     headers = [
         "CNPJ EMPRESA",
