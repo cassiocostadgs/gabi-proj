@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Users, Plus, Trash2, Pencil, Check, X, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Users, Plus, Trash2, Pencil, Check, X } from 'lucide-react'
 import { Spinner } from '../../../components/Spinner'
 import { adminService } from '../../../services/admin.service'
 import { billingService } from '../../../services/billing.service'

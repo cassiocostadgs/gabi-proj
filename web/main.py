@@ -543,7 +543,20 @@ async def validate(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-_MONTH_ABBR_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
+_MONTH_ABBR_PT = [
+    "jan",
+    "fev",
+    "mar",
+    "abr",
+    "mai",
+    "jun",
+    "jul",
+    "ago",
+    "set",
+    "out",
+    "nov",
+    "dez",
+]
 
 
 def _competencia_label(competencia: str) -> str:
@@ -575,7 +588,8 @@ class UpdateSettingRequest(BaseModel):
 async def admin_update_setting(key: str, body: UpdateSettingRequest, _: AdminUser):
     with _db() as conn:
         conn.execute(
-            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            "INSERT INTO settings (key, value) VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, body.value),
         )
     return {"ok": True}
@@ -592,7 +606,9 @@ class BillingRateRequest(BaseModel):
 @app.get("/api/admin/billing-rates")
 async def admin_list_billing_rates(_: AdminUser):
     with _db() as conn:
-        rows = conn.execute("SELECT profile, valor_hora FROM billing_rates ORDER BY profile").fetchall()
+        rows = conn.execute(
+            "SELECT profile, valor_hora FROM billing_rates ORDER BY profile"
+        ).fetchall()
     return {"rates": [dict(r) for r in rows]}
 
 
@@ -667,12 +683,15 @@ async def admin_create_team_member(body: CreateTeamMemberRequest, _: AdminUser):
         user = conn.execute("SELECT 1 FROM users WHERE email=?", (body.user_email,)).fetchone()
         if not user:
             raise HTTPException(status_code=404, detail="Usuário não encontrado")
-        rate = conn.execute("SELECT 1 FROM billing_rates WHERE profile=?", (body.profile,)).fetchone()
+        rate = conn.execute(
+            "SELECT 1 FROM billing_rates WHERE profile=?", (body.profile,)
+        ).fetchone()
         if not rate:
             raise HTTPException(status_code=400, detail="Perfil não cadastrado em tarifas")
         try:
             conn.execute(
-                "INSERT INTO team_members (user_email, cpf, subcontrato, profile) VALUES (?, ?, ?, ?)",
+                "INSERT INTO team_members (user_email, cpf, subcontrato, profile)"
+                " VALUES (?, ?, ?, ?)",
                 (body.user_email, body.cpf, body.subcontrato, body.profile),
             )
         except sqlite3.IntegrityError as exc:
@@ -683,7 +702,9 @@ async def admin_create_team_member(body: CreateTeamMemberRequest, _: AdminUser):
 @app.put("/api/admin/team/{member_id}")
 async def admin_update_team_member(member_id: int, body: UpdateTeamMemberRequest, _: AdminUser):
     with _db() as conn:
-        rate = conn.execute("SELECT 1 FROM billing_rates WHERE profile=?", (body.profile,)).fetchone()
+        rate = conn.execute(
+            "SELECT 1 FROM billing_rates WHERE profile=?", (body.profile,)
+        ).fetchone()
         if not rate:
             raise HTTPException(status_code=400, detail="Perfil não cadastrado em tarifas")
         result = conn.execute(
@@ -738,8 +759,16 @@ async def submit_validation(
                 reviewed_at       = NULL,
                 reviewed_by       = NULL
             """,
-            (email, competencia, nome_profissional, task_id, horas_task,
-             ga.filename or "ga.xls", ga_bytes, snapshot),
+            (
+                email,
+                competencia,
+                nome_profissional,
+                task_id,
+                horas_task,
+                ga.filename or "ga.xls",
+                ga_bytes,
+                snapshot,
+            ),
         )
     return {"ok": True}
 
@@ -847,13 +876,16 @@ async def admin_submissions_summary(_: AdminUser):
 @app.get("/api/admin/submissions")
 async def admin_list_submissions(competencia: str, _: AdminUser):
     with _db() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT id, user_email, competencia, nome_profissional, task_id, horas_task,
                    ga_filename, status, rejection_reason, submitted_at, reviewed_at, reviewed_by
             FROM ga_submissions
             WHERE competencia=?
             ORDER BY nome_profissional
-        """, (competencia,)).fetchall()
+        """,
+            (competencia,),
+        ).fetchall()
     return {"submissions": [dict(r) for r in rows]}
 
 
@@ -923,7 +955,10 @@ async def admin_rerun_submission(submission_id: int, _: AdminUser):
             try:
                 persons, errors = _run_file(ga_path, row["competencia"])
                 if not persons:
-                    raise HTTPException(status_code=422, detail="\n".join(errors) or "Nenhum resultado")
+                    raise HTTPException(
+                        status_code=422,
+                        detail="\n".join(errors) or "Nenhum resultado",
+                    )
                 person = persons[0]
             except HTTPException:
                 raise
@@ -935,7 +970,8 @@ async def admin_rerun_submission(submission_id: int, _: AdminUser):
     with _db() as conn:
         conn.execute(
             "UPDATE ga_submissions SET horas_task=?, validation_snapshot=?, status='pending', "
-            "rejection_reason=NULL, submitted_at=datetime('now'), reviewed_at=NULL, reviewed_by=NULL "
+            "rejection_reason=NULL, submitted_at=datetime('now'),"
+            " reviewed_at=NULL, reviewed_by=NULL "
             "WHERE id=?",
             (new_horas, new_snapshot, submission_id),
         )
@@ -980,7 +1016,10 @@ async def admin_preview_submission(submission_id: int, _: AdminUser):
             try:
                 persons, errors = _run_file(ga_path, row["competencia"])
                 if not persons:
-                    raise HTTPException(status_code=422, detail="\n".join(errors) or "Nenhum resultado")
+                    raise HTTPException(
+                        status_code=422,
+                        detail="\n".join(errors) or "Nenhum resultado",
+                    )
                 person = persons[0]
             except HTTPException:
                 raise
@@ -1004,7 +1043,8 @@ async def export_billing(competencia: str, _: AdminUser):
     with _db() as conn:
         cnpj_row = conn.execute("SELECT value FROM settings WHERE key='billing_cnpj'").fetchone()
         cnpj = cnpj_row["value"] if cnpj_row else ""
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT
                 s.nome_profissional,
                 COALESCE(
@@ -1020,7 +1060,9 @@ async def export_billing(competencia: str, _: AdminUser):
             JOIN billing_rates br ON br.profile   = tm.profile
             WHERE s.competencia=? AND s.status='approved'
             ORDER BY tm.subcontrato ASC
-        """, (competencia,)).fetchall()
+        """,
+            (competencia,),
+        ).fetchall()
 
     if not rows:
         raise HTTPException(
@@ -1028,6 +1070,7 @@ async def export_billing(competencia: str, _: AdminUser):
         )
 
     import re as _re
+
     import openpyxl
     from openpyxl.styles import Alignment, Font
     from openpyxl.utils import get_column_letter
@@ -1094,7 +1137,7 @@ async def export_billing(competencia: str, _: AdminUser):
 
     # Center-align all columns except col 1 (CNPJ EMPRESA) and col 9 (NOME DO PROFISSIONAL)
     center = Alignment(horizontal="center")
-    centered_cols = set(range(2, n_cols))  # cols 2–8 (1-indexed)
+    centered_cols = set(range(2, n_cols))  # cols 2-8 (1-indexed)
     for row_idx in range(1, summary_row + 1):
         for col_idx in centered_cols:
             ws.cell(row=row_idx, column=col_idx).alignment = center
