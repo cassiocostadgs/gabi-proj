@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LogOut,
@@ -8,11 +9,16 @@ import {
   ClipboardList,
   Settings2,
   History,
+  KeyRound,
+  X,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
 import { GabiLogo } from './GabiLogo'
 import { validateService } from '../services/validate.service'
+import { authService } from '../services/auth.service'
 
 function displayName(email: string): string {
   const prefix = email.split('@')[0] ?? email
@@ -43,6 +49,128 @@ const USER_NAV = [
   { to: '/submissions', icon: History, label: 'Submissões' },
 ]
 
+function PasswordField({
+  label,
+  value,
+  onChange,
+  show,
+  onToggle,
+}: Readonly<{
+  label: string
+  value: string
+  onChange: (v: string) => void
+  show: boolean
+  onToggle: () => void
+}>) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs text-slate-400">{label}</label>
+      <div className="relative">
+        <input
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          required
+          className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 pr-9 focus:outline-none focus:border-blue-500"
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={onToggle}
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+        >
+          {show ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ChangePasswordModal({ onClose }: Readonly<{ onClose: () => void }>) {
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showCurrent, setShowCurrent] = useState(false)
+  const [showNew, setShowNew] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+
+  const mutation = useMutation({
+    mutationFn: () => authService.changePassword(currentPassword, newPassword),
+    onSuccess: () => {
+      setSuccess(true)
+      setTimeout(onClose, 2000)
+    },
+    onError: () => setError('Senha atual incorreta.'),
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    if (newPassword.length < 6) {
+      setError('A nova senha deve ter no mínimo 6 caracteres.')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setError('As senhas não coincidem.')
+      return
+    }
+    mutation.mutate()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-xl w-full max-w-sm mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-sm font-semibold text-slate-100">Alterar senha</h2>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        {success ? (
+          <p className="text-sm text-emerald-400 text-center py-4">Senha alterada com sucesso.</p>
+        ) : (
+          <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+            <PasswordField
+              label="Senha atual"
+              value={currentPassword}
+              onChange={setCurrentPassword}
+              show={showCurrent}
+              onToggle={() => setShowCurrent((v) => !v)}
+            />
+            <PasswordField
+              label="Nova senha"
+              value={newPassword}
+              onChange={setNewPassword}
+              show={showNew}
+              onToggle={() => setShowNew((v) => !v)}
+            />
+            <PasswordField
+              label="Confirmar nova senha"
+              value={confirmPassword}
+              onChange={setConfirmPassword}
+              show={showConfirm}
+              onToggle={() => setShowConfirm((v) => !v)}
+            />
+            {error && <p className="text-xs text-red-400">{error}</p>}
+            <button
+              type="submit"
+              disabled={mutation.isPending}
+              className="mt-1 w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-medium text-white transition-colors disabled:opacity-50"
+            >
+              {mutation.isPending ? 'Salvando...' : 'Salvar'}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function UserAvatar({ email }: Readonly<{ email: string }>) {
   const name = displayName(email)
   const initials = name
@@ -66,6 +194,8 @@ function Sidebar({
   user: { email?: string } | null
   onLogout: () => void
 }>) {
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+
   return (
     <aside className="hidden sm:flex sm:flex-col w-52 shrink-0 bg-slate-800/30 border-r border-slate-700 sticky top-0 h-screen overflow-y-auto">
       <div className="px-5 py-4 border-b border-slate-700 flex items-center gap-2">
@@ -93,10 +223,18 @@ function Sidebar({
       </nav>
       <div className="px-3 py-4 border-t border-slate-700 flex flex-col gap-2">
         {user?.email && (
-          <div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400 truncate">
+          <button
+            onClick={() => setShowPasswordModal(true)}
+            title="Alterar senha"
+            className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400 rounded-lg hover:bg-slate-700/50 hover:text-slate-200 transition-colors w-full group"
+          >
             <UserAvatar email={user.email} />
-            <span className="truncate">{displayName(user.email)}</span>
-          </div>
+            <span className="truncate flex-1 text-left">{displayName(user.email)}</span>
+            <KeyRound
+              size={12}
+              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+            />
+          </button>
         )}
         <button
           onClick={onLogout}
@@ -106,6 +244,7 @@ function Sidebar({
           Sair
         </button>
       </div>
+      {showPasswordModal && <ChangePasswordModal onClose={() => setShowPasswordModal(false)} />}
     </aside>
   )
 }
