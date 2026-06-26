@@ -1,6 +1,6 @@
 import { useEffect, useState, FormEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Settings2, Plus, Trash2, Pencil, Check, X } from 'lucide-react'
+import { Settings2, Plus, Trash2, Pencil, Check, X, Mail } from 'lucide-react'
 import { Spinner } from '../../../components/Spinner'
 import { billingService } from '../../../services/billing.service'
 import axios from 'axios'
@@ -35,6 +35,10 @@ export function ConfiguracoesSection() {
   const qc = useQueryClient()
   const [cnpj, setCnpj] = useState('')
   const [cnpjDirty, setCnpjDirty] = useState(false)
+  const [emailTo, setEmailTo] = useState('')
+  const [emailToD, setEmailToD] = useState(false)
+  const [emailTag, setEmailTag] = useState('')
+  const [emailTagD, setEmailTagD] = useState(false)
   const [newProfile, setNewProfile] = useState('')
   const [newValor, setNewValor] = useState('')
   const [editingProfile, setEditingProfile] = useState<string | null>(null)
@@ -49,7 +53,9 @@ export function ConfiguracoesSection() {
 
   useEffect(() => {
     if (settings && !cnpjDirty) setCnpj(formatCnpj(settings.billing_cnpj ?? ''))
-  }, [settings, cnpjDirty])
+    if (settings && !emailToD) setEmailTo(settings.billing_email_to ?? '')
+    if (settings && !emailTagD) setEmailTag(settings.billing_email_tag ?? '')
+  }, [settings, cnpjDirty, emailToD, emailTagD])
 
   const { data: rates = [] } = useQuery({
     queryKey: ['admin-billing-rates'],
@@ -60,6 +66,22 @@ export function ConfiguracoesSection() {
     mutationFn: () => billingService.updateSetting('billing_cnpj', cnpj.replace(/\D/g, '')),
     onSuccess: () => {
       setCnpjDirty(false)
+      qc.invalidateQueries({ queryKey: ['admin-settings'] })
+    },
+  })
+
+  const saveEmailToMutation = useMutation({
+    mutationFn: () => billingService.updateSetting('billing_email_to', emailTo.trim()),
+    onSuccess: () => {
+      setEmailToD(false)
+      qc.invalidateQueries({ queryKey: ['admin-settings'] })
+    },
+  })
+
+  const saveEmailTagMutation = useMutation({
+    mutationFn: () => billingService.updateSetting('billing_email_tag', emailTag.trim()),
+    onSuccess: () => {
+      setEmailTagD(false)
       qc.invalidateQueries({ queryKey: ['admin-settings'] })
     },
   })
@@ -133,6 +155,81 @@ export function ConfiguracoesSection() {
               {saveCnpjMutation.isPending ? <Spinner size="sm" /> : <Check size={13} />}
               Salvar
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Email de faturamento */}
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <Mail size={16} className="text-slate-400" />
+          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
+            E-mail de faturamento
+          </h2>
+        </div>
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 max-w-sm space-y-4">
+          <div>
+            <label
+              htmlFor="email-to-input"
+              className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5"
+            >
+              Destinatário
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="email-to-input"
+                type="email"
+                value={emailTo}
+                onChange={(e) => {
+                  setEmailTo(e.target.value)
+                  setEmailToD(true)
+                }}
+                placeholder="cliente@empresa.com.br"
+                className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-50 placeholder-slate-600 outline-none focus:border-blue-500 transition-colors"
+              />
+              <button
+                onClick={() => saveEmailToMutation.mutate()}
+                disabled={!emailToD || saveEmailToMutation.isPending}
+                className="px-3 py-2 bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-1.5"
+              >
+                {saveEmailToMutation.isPending ? <Spinner size="sm" /> : <Check size={13} />}
+                Salvar
+              </button>
+            </div>
+          </div>
+          <div>
+            <label
+              htmlFor="email-tag-input"
+              className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5"
+            >
+              Tag do cliente (assunto)
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="email-tag-input"
+                type="text"
+                value={emailTag}
+                onChange={(e) => {
+                  setEmailTag(e.target.value.toUpperCase())
+                  setEmailTagD(true)
+                }}
+                placeholder="ex: MAG"
+                maxLength={10}
+                className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-50 placeholder-slate-600 outline-none focus:border-blue-500 transition-colors"
+              />
+              <button
+                onClick={() => saveEmailTagMutation.mutate()}
+                disabled={!emailTagD || saveEmailTagMutation.isPending}
+                className="px-3 py-2 bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-1.5"
+              >
+                {saveEmailTagMutation.isPending ? <Spinner size="sm" /> : <Check size={13} />}
+                Salvar
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mt-1.5">
+              Aparece no assunto como{' '}
+              <span className="text-slate-400">[DB1][TAG] Faturamento | Mês/Ano</span>
+            </p>
           </div>
         </div>
       </div>

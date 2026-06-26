@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsRight,
+  ClipboardCheck,
 } from 'lucide-react'
 import { Spinner } from '../../../components/Spinner'
 import { billingService } from '../../../services/billing.service'
@@ -48,49 +49,72 @@ function ExportSection({
   onCancel,
   isPending,
 }: Readonly<ExportSectionProps>) {
-  if (approvedCount === 0) return null
+  if (approvedCount === 0) {
+    return (
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-xs text-slate-500">Nenhuma submissão aprovada ainda.</p>
+        <button
+          disabled
+          className="flex items-center gap-2 px-4 py-2 bg-emerald-700/30 text-white/30 font-semibold rounded-lg text-sm cursor-not-allowed shrink-0"
+        >
+          <Download size={14} />
+          Gerar faturamento
+        </button>
+      </div>
+    )
+  }
+
   if (confirmExport) {
     const missing = totalMembers - approvedCount
     return (
-      <div className="bg-amber-950/40 border border-amber-700/40 rounded-xl px-5 py-4">
-        <div className="flex items-center gap-2 mb-2">
-          <AlertTriangle size={14} className="text-amber-400 shrink-0" />
-          <p className="text-xs font-semibold text-amber-400">
-            {missing} membro{missing > 1 ? 's' : ''} ainda não aprovado{missing > 1 ? 's' : ''}
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <AlertTriangle size={13} className="text-amber-400 shrink-0" />
+            <p className="text-xs font-semibold text-amber-400">
+              {missing} membro{missing > 1 ? 's' : ''} ainda não aprovado{missing > 1 ? 's' : ''}
+            </p>
+          </div>
+          <p className="text-xs text-slate-500">
+            Serão incluídas somente as {approvedCount} submissões aprovadas.
           </p>
         </div>
-        <p className="text-xs text-slate-400 mb-3 pl-5">
-          O faturamento será gerado somente com as {approvedCount} submissões aprovadas. Deseja
-          continuar?
-        </p>
-        <div className="flex gap-2 pl-5">
-          <button
-            onClick={onConfirm}
-            disabled={isPending}
-            className="px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-white font-semibold rounded-lg text-xs transition-colors flex items-center gap-1.5"
-          >
-            {isPending ? <Spinner size="sm" /> : <Download size={12} />}
-            Gerar assim mesmo
-          </button>
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={onCancel}
             className="px-3 py-1.5 text-slate-400 hover:text-slate-200 text-xs transition-colors"
           >
             Cancelar
           </button>
+          <button
+            onClick={onConfirm}
+            disabled={isPending}
+            className="px-3 py-1.5 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-colors flex items-center gap-1.5"
+          >
+            {isPending ? <Spinner size="sm" /> : <Download size={12} />}
+            Gerar assim mesmo
+          </button>
         </div>
       </div>
     )
   }
+
   return (
-    <button
-      onClick={isComplete ? onConfirm : onRequest}
-      disabled={isPending}
-      className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition-colors"
-    >
-      {isPending ? <Spinner size="sm" /> : <Download size={14} />}
-      Gerar faturamento
-    </button>
+    <div className="flex items-center justify-between gap-4">
+      <p className={`text-xs ${isComplete ? 'text-emerald-400' : 'text-slate-500'}`}>
+        {isComplete
+          ? `${approvedCount} de ${totalMembers} aprovados · pronto para faturar.`
+          : `${approvedCount} de ${totalMembers} aprovados.`}
+      </p>
+      <button
+        onClick={isComplete ? onConfirm : onRequest}
+        disabled={isPending}
+        className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition-colors shrink-0"
+      >
+        {isPending ? <Spinner size="sm" /> : <Download size={14} />}
+        Gerar faturamento
+      </button>
+    </div>
   )
 }
 
@@ -98,7 +122,13 @@ export function AprovacoesSection() {
   const qc = useQueryClient()
   const [selectedComp, setSelectedComp] = useState<string | null>(null)
   const [confirmExport, setConfirmExport] = useState(false)
+  const [mailtoUri, setMailtoUri] = useState<string | null>(null)
   const [openSubmission, setOpenSubmission] = useState<Submission | null>(null)
+
+  const { data: settings } = useQuery({
+    queryKey: ['admin-settings'],
+    queryFn: billingService.getSettings,
+  })
 
   const { data: oracleAvailable = false } = useQuery({
     queryKey: ['oracle-status'],
@@ -134,8 +164,15 @@ export function AprovacoesSection() {
   }
 
   const exportMutation = useMutation({
-    mutationFn: () => billingService.exportBilling(selectedComp!),
-    onSuccess: () => setConfirmExport(false),
+    mutationFn: () =>
+      billingService.exportBillingWithFiles(selectedComp!, submissions, {
+        to: settings?.billing_email_to ?? '',
+        tag: settings?.billing_email_tag ?? '',
+      }),
+    onSuccess: (uri) => {
+      setConfirmExport(false)
+      if (uri) setMailtoUri(uri)
+    },
   })
 
   const compSummary = summary?.competencias.find((c) => c.competencia === selectedComp)
@@ -156,8 +193,8 @@ export function AprovacoesSection() {
   }, [competencias, selectedComp])
 
   return (
-    <section>
-      <div className="sticky top-[84px] sm:top-7 z-10 bg-slate-900 pb-5">
+    <section className="pb-20">
+      <div className="sticky top-[57px] sm:top-0 z-10 bg-slate-900 pb-4 border-b border-slate-800">
         <div className="flex items-center gap-2 mb-4">
           <ClipboardList size={16} className="text-slate-400" />
           <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
@@ -322,19 +359,47 @@ export function AprovacoesSection() {
               ))}
             </div>
           )}
-
-          {/* Export button */}
-          <ExportSection
-            approvedCount={approvedCount}
-            totalMembers={totalMembers}
-            isComplete={isComplete}
-            confirmExport={confirmExport}
-            onRequest={() => setConfirmExport(true)}
-            onConfirm={() => exportMutation.mutate()}
-            onCancel={() => setConfirmExport(false)}
-            isPending={exportMutation.isPending}
-          />
         </>
+      )}
+
+      {/* Email ready notification */}
+      {mailtoUri && (
+        <div className="fixed bottom-16 left-0 right-0 sm:left-52 z-30 flex justify-center px-6">
+          <div className="flex items-center gap-3 bg-emerald-900/95 border border-emerald-700/60 text-emerald-300 text-xs font-medium px-4 py-2.5 rounded-xl shadow-lg backdrop-blur-sm">
+            <ClipboardCheck size={14} className="shrink-0" />
+            <span>Corpo copiado — cole no Outlook (Ctrl+V) e adicione as observações</span>
+            <a
+              href={mailtoUri}
+              className="ml-1 px-3 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg transition-colors shrink-0"
+            >
+              Abrir Outlook
+            </a>
+            <button
+              onClick={() => setMailtoUri(null)}
+              className="text-emerald-600 hover:text-emerald-400 transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Fixed bottom action bar */}
+      {selectedComp && (
+        <div className="fixed bottom-0 left-0 right-0 sm:left-52 z-20 bg-slate-900/95 backdrop-blur-sm border-t border-slate-700/60 px-6 py-3">
+          <div className="max-w-2xl">
+            <ExportSection
+              approvedCount={approvedCount}
+              totalMembers={totalMembers}
+              isComplete={isComplete}
+              confirmExport={confirmExport}
+              onRequest={() => setConfirmExport(true)}
+              onConfirm={() => exportMutation.mutate()}
+              onCancel={() => setConfirmExport(false)}
+              isPending={exportMutation.isPending}
+            />
+          </div>
+        </div>
       )}
 
       {/* Submission drawer */}

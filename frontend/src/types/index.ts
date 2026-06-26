@@ -117,6 +117,7 @@ export interface Submission {
   task_id: string
   horas_task: number
   ga_filename: string
+  subcontrato: string
   status: SubmissionStatus
   rejection_reason: string | null
   submitted_at: string

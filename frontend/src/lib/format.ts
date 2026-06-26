@@ -33,6 +33,11 @@ export function competenciaLabel(val: string): string {
   return `${MONTHS[Number.parseInt(m, 10) - 1]} de ${y}`
 }
 
+export function competenciaSlash(val: string): string {
+  const [y, m] = val.split('-')
+  return `${MONTHS[Number.parseInt(m, 10) - 1]}/${y}`
+}
+
 export function competenciaShort(val: string): string {
   const [y, m] = val.split('-')
   return `${MONTHS_SHORT[Number.parseInt(m, 10) - 1]}/${y.slice(2)}`

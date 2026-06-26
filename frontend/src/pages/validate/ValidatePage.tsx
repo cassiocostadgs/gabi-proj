@@ -1,16 +1,9 @@
 import { useState, useRef, DragEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  Check,
-  X,
-  ChevronLeft,
-  ChevronRight,
-  Pencil,
-  AlertTriangle,
-  CircleAlert,
-} from 'lucide-react'
+import { Check, X, Pencil, AlertTriangle, CircleAlert } from 'lucide-react'
 import { Layout } from '../../components/Layout'
+import { MonthPicker } from '../../components/MonthPicker'
 import { Spinner } from '../../components/Spinner'
 import { validateService } from '../../services/validate.service'
 import { competenciaLabel } from '../../lib/format'
@@ -33,21 +26,6 @@ const MONTHS_PT: Record<string, string> = {
   novembro: '11',
   dezembro: '12',
 }
-
-const MONTH_ABBR = [
-  'Jan',
-  'Fev',
-  'Mar',
-  'Abr',
-  'Mai',
-  'Jun',
-  'Jul',
-  'Ago',
-  'Set',
-  'Out',
-  'Nov',
-  'Dez',
-]
 
 function normalizeStr(s: string) {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -123,65 +101,6 @@ function SpreadsheetIcon({ className }: Readonly<{ className?: string }>) {
       <line x1="14" y1="7" x2="14" y2="25" stroke="white" strokeWidth="1.2" strokeOpacity="0.5" />
       <rect x="7" y="7" width="7" height="6" rx="1.5" fill="white" fillOpacity="0.25" />
     </svg>
-  )
-}
-
-interface MonthPickerProps {
-  pickerYear: number
-  selectedCompetencia: string
-  onYearChange: (delta: number) => void
-  onMonthSelect: (competencia: string) => void
-}
-
-function MonthPicker({
-  pickerYear,
-  selectedCompetencia,
-  onYearChange,
-  onMonthSelect,
-}: Readonly<MonthPickerProps>) {
-  const parts = selectedCompetencia.split('-')
-  const selYear = parts[0] ? Number.parseInt(parts[0], 10) : null
-  const selMonth = parts[1] ? Number.parseInt(parts[1], 10) : null
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <button
-          onClick={() => onYearChange(-1)}
-          className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
-        >
-          <ChevronLeft size={16} />
-        </button>
-        <span className="text-sm font-semibold text-slate-200">{pickerYear}</span>
-        <button
-          onClick={() => onYearChange(1)}
-          className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
-        >
-          <ChevronRight size={16} />
-        </button>
-      </div>
-      <div className="grid grid-cols-4 gap-1.5">
-        {MONTH_ABBR.map((abbr, i) => {
-          const monthNum = i + 1
-          const isSelected = selYear === pickerYear && selMonth === monthNum
-          return (
-            <button
-              key={abbr}
-              onClick={() => {
-                onMonthSelect(`${pickerYear}-${String(monthNum).padStart(2, '0')}`)
-              }}
-              className={`py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                isSelected
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-slate-400 hover:bg-slate-700 hover:text-slate-200'
-              }`}
-            >
-              {abbr}
-            </button>
-          )
-        })}
-      </div>
-    </div>
   )
 }
 

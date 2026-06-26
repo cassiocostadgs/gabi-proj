@@ -159,6 +159,8 @@ def _init_db() -> None:
             "INSERT OR IGNORE INTO settings (key, value) VALUES ('billing_cnpj', ?)",
             (os.getenv("BILLING_CNPJ", ""),),
         )
+        conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('billing_email_to', '')")
+        conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('billing_email_tag', '')")
 
         # Migrations for existing installs
         for ddl in [
@@ -964,11 +966,13 @@ async def admin_list_submissions(competencia: str, _: AdminUser):
     with _db() as conn:
         rows = conn.execute(
             """
-            SELECT id, user_email, competencia, nome_profissional, task_id, horas_task,
-                   ga_filename, status, rejection_reason, submitted_at, reviewed_at, reviewed_by
-            FROM ga_submissions
-            WHERE competencia=?
-            ORDER BY nome_profissional
+            SELECT s.id, s.user_email, s.competencia, s.nome_profissional, s.task_id, s.horas_task,
+                   s.ga_filename, s.status, s.rejection_reason, s.submitted_at, s.reviewed_at,
+                   s.reviewed_by, COALESCE(tm.subcontrato, '') AS subcontrato
+            FROM ga_submissions s
+            LEFT JOIN team_members tm ON tm.user_email = s.user_email
+            WHERE s.competencia=?
+            ORDER BY s.nome_profissional
         """,
             (competencia,),
         ).fetchall()
@@ -1267,6 +1271,30 @@ def _apply_billing_formatting(ws, last_data_row: int, total_nf: float, n_cols: i
             ws.column_dimensions[get_column_letter(col_cells[0].column)].width = max_len + 3
 
     ws.sheet_view.showGridLines = False
+
+
+@app.get(
+    "/api/admin/submissions/{submission_id}/ga-file",
+    responses={404: {"description": SUBMISSION_NOT_FOUND}},
+)
+async def download_submission_ga_file(submission_id: int, _: AdminUser):
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT ga_filename, ga_data FROM ga_submissions WHERE id=? AND status='approved'",
+            (submission_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=SUBMISSION_NOT_FOUND)
+    content_type = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if row["ga_filename"].endswith(".xlsx")
+        else "application/vnd.ms-excel"
+    )
+    return Response(
+        content=row["ga_data"],
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{row["ga_filename"]}"'},
+    )
 
 
 @app.get(
