@@ -13,7 +13,7 @@ import { billingService } from '../../../services/billing.service'
 import { validateService } from '../../../services/validate.service'
 import { competenciaLabel, competenciaShort } from '../../../lib/format'
 import { SubmissionDrawer } from './SubmissionDrawer'
-import type { Submission, SubmissionStatus } from '../../../types'
+import type { Submission, SubmissionStatus, MissingMember } from '../../../types'
 
 const STATUS_LABEL: Record<SubmissionStatus, string> = {
   pending: 'Pendente',
@@ -121,9 +121,16 @@ export function AprovacoesSection() {
     enabled: !!selectedComp,
   })
 
+  const { data: missingMembers = [] } = useQuery({
+    queryKey: ['admin-missing', selectedComp],
+    queryFn: () => billingService.getMissingSubmissions(selectedComp!),
+    enabled: !!selectedComp,
+  })
+
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['admin-submissions', selectedComp] })
     qc.invalidateQueries({ queryKey: ['admin-submissions-summary'] })
+    qc.invalidateQueries({ queryKey: ['admin-missing', selectedComp] })
   }
 
   const exportMutation = useMutation({
@@ -131,8 +138,9 @@ export function AprovacoesSection() {
     onSuccess: () => setConfirmExport(false),
   })
 
-  const totalMembers = summary?.total_members ?? 0
   const compSummary = summary?.competencias.find((c) => c.competencia === selectedComp)
+  const totalMembers = compSummary?.total_members ?? summary?.total_members ?? 0
+  const submittedCount = compSummary?.total_submitted ?? 0
   const approvedCount = compSummary?.total_approved ?? 0
   const isComplete = approvedCount >= totalMembers && totalMembers > 0
 
@@ -149,108 +157,114 @@ export function AprovacoesSection() {
 
   return (
     <section>
-      <div className="flex items-center gap-2 mb-4">
-        <ClipboardList size={16} className="text-slate-400" />
-        <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">Aprovações</h2>
-        <div
-          className={`ml-auto inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs font-medium ${
-            oracleAvailable
-              ? 'border-emerald-500/25 bg-emerald-500/6 text-slate-400'
-              : 'border-amber-500/30 bg-amber-500/8 text-amber-400'
-          }`}
-        >
-          <span
-            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+      <div className="sticky top-[84px] sm:top-7 z-10 bg-slate-900 pb-5">
+        <div className="flex items-center gap-2 mb-4">
+          <ClipboardList size={16} className="text-slate-400" />
+          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
+            Aprovações
+          </h2>
+          <div
+            className={`ml-auto inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs font-medium ${
               oracleAvailable
-                ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.22)]'
-                : 'bg-amber-400 shadow-[0_0_0_2px_rgba(234,179,8,0.22)]'
+                ? 'border-emerald-500/25 bg-emerald-500/6 text-slate-400'
+                : 'border-amber-500/30 bg-amber-500/8 text-amber-400'
             }`}
-          />
-          {oracleAvailable ? 'Task DB · conectado' : 'Task DB · indisponível'}
-        </div>
-      </div>
-
-      {/* Competência selector */}
-      {competencias.length > 0 ? (
-        <div className="mb-5">
-          {/* Primary: arrows + selected month */}
-          <div className="flex items-center gap-3 mb-2">
-            <button
-              onClick={() =>
-                setSelectedComp(competenciasDisplay[displayIdx - 1]?.competencia ?? null)
-              }
-              disabled={displayIdx <= 0}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-25"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <div className="flex-1 text-center">
-              <p className="text-sm font-semibold text-slate-200">
-                {selectedComp ? competenciaLabel(selectedComp) : '—'}
-              </p>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {approvedCount} de {totalMembers} aprovados
-              </p>
-            </div>
-            <button
-              onClick={() =>
-                setSelectedComp(competenciasDisplay[displayIdx + 1]?.competencia ?? null)
-              }
-              disabled={displayIdx >= competenciasDisplay.length - 1}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-25"
-            >
-              <ChevronRight size={16} />
-            </button>
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                oracleAvailable
+                  ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.22)]'
+                  : 'bg-amber-400 shadow-[0_0_0_2px_rgba(234,179,8,0.22)]'
+              }`}
+            />
+            {oracleAvailable ? 'Task DB · conectado' : 'Task DB · indisponível'}
           </div>
-          {/* Secondary: paginator pills */}
-          <div className="flex gap-1 justify-center">
-            {competenciasDisplay.map((c) => (
+        </div>
+
+        {/* Competência selector */}
+        {competencias.length > 0 ? (
+          <div>
+            {/* Primary: arrows + selected month */}
+            <div className="flex items-center gap-3 mb-2">
               <button
-                key={c.competencia}
-                onClick={() => setSelectedComp(c.competencia)}
-                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors border ${
-                  selectedComp === c.competencia
-                    ? 'bg-blue-700/20 text-blue-300 border-blue-700/40'
-                    : 'text-slate-600 border-transparent hover:text-slate-300 hover:border-slate-700'
-                }`}
+                onClick={() =>
+                  setSelectedComp(competenciasDisplay[displayIdx - 1]?.competencia ?? null)
+                }
+                disabled={displayIdx <= 0}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-25"
               >
-                {competenciaShort(c.competencia)}
+                <ChevronLeft size={16} />
               </button>
-            ))}
+              <div className="flex-1 text-center">
+                <p className="text-sm font-semibold text-slate-200">
+                  {selectedComp ? competenciaLabel(selectedComp) : '—'}
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {approvedCount} de {totalMembers} aprovados
+                </p>
+              </div>
+              <button
+                onClick={() =>
+                  setSelectedComp(competenciasDisplay[displayIdx + 1]?.competencia ?? null)
+                }
+                disabled={displayIdx >= competenciasDisplay.length - 1}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-25"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+            {/* Secondary: paginator pills */}
+            <div className="flex gap-1 justify-center">
+              {competenciasDisplay.map((c) => (
+                <button
+                  key={c.competencia}
+                  onClick={() => setSelectedComp(c.competencia)}
+                  className={`px-2 py-0.5 rounded text-xs font-medium transition-colors border ${
+                    selectedComp === c.competencia
+                      ? 'bg-blue-700/20 text-blue-300 border-blue-700/40'
+                      : 'text-slate-600 border-transparent hover:text-slate-300 hover:border-slate-700'
+                  }`}
+                >
+                  {competenciaShort(c.competencia)}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      ) : (
-        <p className="text-sm text-slate-500 py-6 text-center">Nenhuma submissão recebida ainda.</p>
-      )}
+        ) : (
+          <p className="text-sm text-slate-500 py-6 text-center">
+            Nenhuma submissão recebida ainda.
+          </p>
+        )}
 
-      {selectedComp && (
-        <>
-          {/* Progress bar */}
-          <div className="bg-slate-800 border border-slate-700 rounded-xl px-5 py-4 mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-slate-400">
-                {competenciaLabel(selectedComp)} — {approvedCount} aprovados de {totalMembers}{' '}
-                esperados
+        {selectedComp && (
+          <div className="mt-4 px-1">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[0.65rem] font-semibold text-slate-500 uppercase tracking-wide">
+                {submittedCount} de {totalMembers} submeteram
               </span>
-              {compSummary && compSummary.total_pending > 0 && (
-                <span className="text-xs text-amber-400">
-                  {compSummary.total_pending} pendente{compSummary.total_pending > 1 ? 's' : ''}
+              {missingMembers.length > 0 && (
+                <span className="text-[0.65rem] text-slate-500">
+                  {missingMembers.length} aguardando
                 </span>
               )}
             </div>
-            <div className="w-full bg-slate-700 rounded-full h-1.5">
+            <div className="w-full bg-slate-700/60 rounded-full h-1">
               <div
-                className={`h-1.5 rounded-full transition-all ${isComplete ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                className={`h-1 rounded-full transition-all ${isComplete ? 'bg-emerald-500' : 'bg-blue-500'}`}
                 style={{
                   width:
                     totalMembers > 0
-                      ? `${Math.min(100, (approvedCount / totalMembers) * 100)}%`
+                      ? `${Math.min(100, (submittedCount / totalMembers) * 100)}%`
                       : '0%',
                 }}
               />
             </div>
           </div>
+        )}
+      </div>
 
+      {selectedComp && (
+        <>
           {/* Submissions list */}
           {loadingSubs ? (
             <div className="flex justify-center py-6">
@@ -288,11 +302,24 @@ export function AprovacoesSection() {
                   </div>
                 </button>
               ))}
-              {submissions.length === 0 && (
+              {submissions.length === 0 && missingMembers.length === 0 && (
                 <p className="text-sm text-slate-500 text-center py-6">
                   Nenhuma submissão para esta competência.
                 </p>
               )}
+              {missingMembers.map((m: MissingMember) => (
+                <div
+                  key={m.user_email}
+                  className="w-full bg-slate-800/30 border border-slate-700/40 rounded-xl px-5 py-4 text-xs"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-slate-500 truncate">{m.user_email}</p>
+                    <span className="px-2 py-0.5 rounded-full border text-[0.65rem] font-bold bg-slate-700/20 border-slate-600/30 text-slate-500 shrink-0">
+                      Aguardando
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 

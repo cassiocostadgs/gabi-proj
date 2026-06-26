@@ -42,6 +42,7 @@ TOKEN_EXPIRE_HOURS = 8
 
 USER_NOT_FOUND = "Usuário não encontrado"
 SUBMISSION_NOT_FOUND = "Submission não encontrada"
+MEMBER_NOT_FOUND = "Membro não encontrado"
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "users.db"
@@ -164,6 +165,7 @@ def _init_db() -> None:
             "ALTER TABLE task_uploads ADD COLUMN competencia TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE ga_submissions ADD COLUMN approved_snapshot TEXT",
+            "ALTER TABLE team_members ADD COLUMN deactivated_from_competencia TEXT",
         ]:
             with contextlib.suppress(sqlite3.OperationalError):
                 conn.execute(ddl)
@@ -729,7 +731,7 @@ async def admin_create_team_member(body: CreateTeamMemberRequest, _: AdminUser):
     "/api/admin/team/{member_id}",
     responses={
         400: {"description": "Perfil não cadastrado em tarifas"},
-        404: {"description": "Membro não encontrado"},
+        404: {"description": MEMBER_NOT_FOUND},
     },
 )
 async def admin_update_team_member(member_id: int, body: UpdateTeamMemberRequest, _: AdminUser):
@@ -744,19 +746,53 @@ async def admin_update_team_member(member_id: int, body: UpdateTeamMemberRequest
             (body.cpf, body.subcontrato, body.profile, int(body.is_active), member_id),
         )
     if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Membro não encontrado")
+        raise HTTPException(status_code=404, detail=MEMBER_NOT_FOUND)
     return {"ok": True}
 
 
 @app.delete(
     "/api/admin/team/{member_id}",
-    responses={404: {"description": "Membro não encontrado"}},
+    responses={404: {"description": MEMBER_NOT_FOUND}},
 )
 async def admin_delete_team_member(member_id: int, _: AdminUser):
     with _db() as conn:
         result = conn.execute("DELETE FROM team_members WHERE id=?", (member_id,))
     if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Membro não encontrado")
+        raise HTTPException(status_code=404, detail=MEMBER_NOT_FOUND)
+    return {"ok": True}
+
+
+class DeactivateMemberRequest(BaseModel):
+    deactivated_from_competencia: str
+
+
+@app.patch(
+    "/api/admin/team/{member_id}/deactivate",
+    responses={404: {"description": MEMBER_NOT_FOUND}},
+)
+async def admin_deactivate_team_member(member_id: int, body: DeactivateMemberRequest, _: AdminUser):
+    with _db() as conn:
+        result = conn.execute(
+            "UPDATE team_members SET is_active=0, deactivated_from_competencia=? WHERE id=?",
+            (body.deactivated_from_competencia, member_id),
+        )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail=MEMBER_NOT_FOUND)
+    return {"ok": True}
+
+
+@app.patch(
+    "/api/admin/team/{member_id}/activate",
+    responses={404: {"description": MEMBER_NOT_FOUND}},
+)
+async def admin_activate_team_member(member_id: int, _: AdminUser):
+    with _db() as conn:
+        result = conn.execute(
+            "UPDATE team_members SET is_active=1, deactivated_from_competencia=NULL WHERE id=?",
+            (member_id,),
+        )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail=MEMBER_NOT_FOUND)
     return {"ok": True}
 
 
@@ -894,9 +930,7 @@ async def get_my_submission(submission_id: int, email: CurrentUser = ""):
 @app.get("/api/admin/submissions/summary")
 async def admin_submissions_summary(_: AdminUser):
     with _db() as conn:
-        total_members = conn.execute(
-            "SELECT COUNT(*) FROM team_members WHERE is_active=1"
-        ).fetchone()[0]
+        members = conn.execute("SELECT deactivated_from_competencia FROM team_members").fetchall()
         rows = conn.execute("""
             SELECT
                 competencia,
@@ -908,7 +942,21 @@ async def admin_submissions_summary(_: AdminUser):
             GROUP BY competencia
             ORDER BY competencia DESC
         """).fetchall()
-    return {"total_members": total_members, "competencias": [dict(r) for r in rows]}
+
+    def members_for_competencia(comp: str) -> int:
+        return sum(
+            1
+            for m in members
+            if m["deactivated_from_competencia"] is None or m["deactivated_from_competencia"] > comp
+        )
+
+    total_active = sum(1 for m in members if m["deactivated_from_competencia"] is None)
+    competencias = []
+    for row in rows:
+        entry = dict(row)
+        entry["total_members"] = members_for_competencia(row["competencia"])
+        competencias.append(entry)
+    return {"total_members": total_active, "competencias": competencias}
 
 
 @app.get("/api/admin/submissions")
@@ -925,6 +973,31 @@ async def admin_list_submissions(competencia: str, _: AdminUser):
             (competencia,),
         ).fetchall()
     return {"submissions": [dict(r) for r in rows]}
+
+
+@app.get("/api/admin/submissions/{competencia}/missing")
+async def admin_missing_submissions(competencia: str, _: AdminUser):
+    with _db() as conn:
+        members = conn.execute(
+            "SELECT user_email, deactivated_from_competencia FROM team_members"
+        ).fetchall()
+        submitted_emails = {
+            row["user_email"]
+            for row in conn.execute(
+                "SELECT user_email FROM ga_submissions WHERE competencia=?",
+                (competencia,),
+            ).fetchall()
+        }
+    missing = [
+        {"user_email": m["user_email"]}
+        for m in members
+        if (
+            m["deactivated_from_competencia"] is None
+            or m["deactivated_from_competencia"] > competencia
+        )
+        and m["user_email"] not in submitted_emails
+    ]
+    return {"missing": missing}
 
 
 class ApproveSubmissionRequest(BaseModel):

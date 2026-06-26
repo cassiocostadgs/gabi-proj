@@ -6,6 +6,7 @@ import type {
   SubmissionDetail,
   SubmissionStatusResponse,
   SubmissionsSummary,
+  MissingMember,
   AppSettings,
   ValidationResult,
   Person,
@@ -69,6 +70,14 @@ export const billingService = {
     await api.delete(`/api/admin/team/${id}`)
   },
 
+  deactivateMember: async (id: number, deactivated_from_competencia: string): Promise<void> => {
+    await api.patch(`/api/admin/team/${id}/deactivate`, { deactivated_from_competencia })
+  },
+
+  activateMember: async (id: number): Promise<void> => {
+    await api.patch(`/api/admin/team/${id}/activate`)
+  },
+
   // ── Submissions (user) ────────────────────────────────────────────────────────
 
   submit: async (gaFile: File, competencia: string, result: ValidationResult): Promise<void> => {
@@ -114,6 +123,13 @@ export const billingService = {
       params: { competencia },
     })
     return data.submissions
+  },
+
+  getMissingSubmissions: async (competencia: string): Promise<MissingMember[]> => {
+    const { data } = await api.get<{ missing: MissingMember[] }>(
+      `/api/admin/submissions/${competencia}/missing`
+    )
+    return data.missing
   },
 
   previewSubmission: async (

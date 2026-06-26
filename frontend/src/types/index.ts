@@ -103,6 +103,7 @@ export interface TeamMember {
   subcontrato: string
   profile: string
   is_active: boolean
+  deactivated_from_competencia: string | null
   created_at: string
 }
 
@@ -142,11 +143,16 @@ export interface CompetenciaSummary {
   total_approved: number
   total_pending: number
   total_rejected: number
+  total_members: number
 }
 
 export interface SubmissionsSummary {
   total_members: number
   competencias: CompetenciaSummary[]
+}
+
+export interface MissingMember {
+  user_email: string
 }
 
 export interface AppSettings {
