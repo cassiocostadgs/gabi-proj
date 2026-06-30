@@ -280,28 +280,31 @@ export function LoginPage() {
               </div>
 
               {/* MS 365 */}
-              <button
-                type="button"
-                className="w-full flex items-center justify-center gap-3 rounded-xl py-3 px-4 text-[13px] font-medium mb-6 transition-all"
-                style={{
-                  color: 'rgba(255,255,255,.75)',
-                  background: 'rgba(255,255,255,.05)',
-                  border: '1px solid rgba(255,255,255,.09)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,.09)'
-                  e.currentTarget.style.color = 'rgba(255,255,255,.95)'
-                  e.currentTarget.style.borderColor = 'rgba(255,255,255,.15)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,.05)'
-                  e.currentTarget.style.color = 'rgba(255,255,255,.75)'
-                  e.currentTarget.style.borderColor = 'rgba(255,255,255,.09)'
-                }}
-              >
-                <MicrosoftIcon />
-                Continuar com Microsoft 365
-              </button>
+              <div className="relative mb-6 group">
+                <button
+                  type="button"
+                  disabled
+                  className="w-full flex items-center justify-center gap-3 rounded-xl py-3 px-4 text-[13px] font-medium transition-all cursor-not-allowed"
+                  style={{
+                    color: 'rgba(255,255,255,.3)',
+                    background: 'rgba(255,255,255,.03)',
+                    border: '1px solid rgba(255,255,255,.06)',
+                  }}
+                >
+                  <MicrosoftIcon />
+                  Continuar com Microsoft 365
+                </button>
+                <div
+                  className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg text-[11px] whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{
+                    background: 'rgba(30,30,35,.95)',
+                    border: '1px solid rgba(255,255,255,.1)',
+                    color: 'rgba(255,255,255,.6)',
+                  }}
+                >
+                  Funcionalidade despriorizada da PI atual dado o volume de incidentes
+                </div>
+              </div>
 
               {/* Divider */}
               <div className="flex items-center gap-3 mb-6">
@@ -343,7 +346,7 @@ export function LoginPage() {
                       type="text"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      placeholder="pedro.santos"
+                      placeholder="nome.sobrenome"
                       autoComplete="username"
                       required
                       className="flex-1 min-w-0 py-3 pl-4 pr-2 text-[14px] outline-none bg-transparent"
@@ -409,15 +412,17 @@ export function LoginPage() {
                     </button>
                   </div>
                   <div className="flex justify-end mt-2">
-                    <button
-                      type="button"
-                      className="text-[12px] transition-colors bg-transparent border-0 p-0 cursor-pointer"
+                    <a
+                      href="https://www.bbc.com/portuguese/geral-53603640"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[12px] transition-colors bg-transparent border-0 p-0 cursor-pointer no-underline"
                       style={{ color: 'rgba(79,110,247,.7)' }}
                       onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(79,110,247,1)')}
                       onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(79,110,247,.7)')}
                     >
                       Esqueci a senha
-                    </button>
+                    </a>
                   </div>
                 </div>
 

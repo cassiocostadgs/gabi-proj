@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LogOut,
@@ -119,7 +120,7 @@ function ChangePasswordModal({ onClose }: Readonly<{ onClose: () => void }>) {
     mutation.mutate()
   }
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-xl w-full max-w-sm mx-4 p-6">
         <div className="flex items-center justify-between mb-5">
@@ -167,7 +168,8 @@ function ChangePasswordModal({ onClose }: Readonly<{ onClose: () => void }>) {
           </form>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
