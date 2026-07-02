@@ -505,3 +505,29 @@ def process_with_task_data(
         end_date,
         task_nf_daily,
     )
+
+
+# ── Relatório de apontamentos ────────────────────────────────────────────────
+
+KNOWN_AREAS = {"FATURADO", "NAO_FATURADO"}
+
+
+def _with_area_flag(entry: dict) -> dict:
+    return {**entry, "unexpected_area": entry["area"] not in KNOWN_AREAS}
+
+
+def build_task_report(entries: list[dict]) -> list[dict]:
+    """Groups raw Task entries by day, each with its daily total."""
+    by_date: defaultdict = defaultdict(list)
+    for entry in entries:
+        by_date[entry["date"]].append(_with_area_flag(entry))
+
+    days = sorted(by_date.items(), key=lambda item: (item[0][6:], item[0][3:5], item[0][:2]))
+    return [
+        {
+            "date": ds,
+            "entries": day_entries,
+            "total": round(sum(e["hours"] for e in day_entries), 2),
+        }
+        for ds, day_entries in days
+    ]

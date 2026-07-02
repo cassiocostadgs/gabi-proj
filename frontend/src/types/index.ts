@@ -39,6 +39,24 @@ export interface Competencia {
   uploaded_by: string
 }
 
+export interface TaskEntry {
+  date: string
+  project: string
+  task_code: string
+  description: string
+  area: string
+  start: string
+  end: string
+  hours: number
+  unexpected_area: boolean
+}
+
+export interface TaskReportDay {
+  date: string
+  entries: TaskEntry[]
+  total: number
+}
+
 export type DayStatus = 'ok' | 'error' | 'warning' | 'info' | 'r0' | 'r4'
 
 export interface DayResult {

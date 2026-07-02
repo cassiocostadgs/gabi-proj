@@ -42,6 +42,30 @@ _QUERY = """
 """
 
 
+_ENTRIES_QUERY = """
+    SELECT
+        ex.dh_inicio   AS inicio,
+        ex.dh_termino  AS termino,
+        os.cd_projeto  AS projeto,
+        os.cd_tarefa   AS tarefa,
+        os.ds_tarefa   AS descricao,
+        os.cd_area     AS area,
+        ROUND((ex.dh_termino - ex.dh_inicio) * 24, 2) AS horas
+    FROM TASKMANAGER.ordemservico os
+    JOIN TASKMANAGER.triagem tr
+        ON os.cd_projeto = tr.cd_projeto AND os.cd_tarefa = tr.cd_tarefa
+    JOIN TASKMANAGER.execucao ex
+        ON tr.cd_projeto = ex.cd_projeto
+        AND tr.cd_tarefa = ex.cd_tarefa
+        AND tr.cd_triagem = ex.cd_triagem
+    WHERE tr.cd_responsavel = :responsavel
+      AND ex.dh_inicio     >= TO_DATE(:inicio, 'DD/MM/YYYY')
+      AND ex.dh_inicio     <  TO_DATE(:fim,    'DD/MM/YYYY') + 1
+      AND ex.dh_termino    IS NOT NULL
+    ORDER BY ex.dh_inicio
+"""
+
+
 _PING_DSN = (
     f"(DESCRIPTION=(CONNECT_TIMEOUT=2)(RETRY_COUNT=0)"
     f"(ADDRESS=(PROTOCOL=TCP)(HOST={_HOST})(PORT={_PORT}))"
@@ -69,6 +93,11 @@ def ping() -> bool:
 def responsavel_from_email(email: str) -> str:
     """pedro.santos@db1.com.br → PEDRO.SANTOS"""
     return email.split("@")[0].upper()
+
+
+def get_default_project() -> str:
+    """ORACLE_TASK_PROJECT — default project filter for the entries report."""
+    return _PROJECT
 
 
 def get_task_hours(
@@ -101,3 +130,38 @@ def get_task_hours(
         elif area == "NAO_FATURADO":
             nao_faturado[ds] = round(nao_faturado.get(ds, 0.0) + float(horas), 2)
     return faturado, nao_faturado
+
+
+def get_task_entries(responsavel: str, start_date: date, end_date: date) -> list[dict]:
+    """Returns every execution logged by the responsável — all projects, all areas.
+
+    Deliberately unfiltered by project/area/abono: this feeds the self-service
+    report used to fill the GA by hand, so a misconfigured area must still show up.
+    """
+    import oracledb
+
+    params = {
+        "responsavel": responsavel,
+        "inicio": start_date.strftime(_DATE_FMT),
+        "fim": end_date.strftime(_DATE_FMT),
+    }
+    with (
+        oracledb.connect(user=_USER, password=_PASSWORD, dsn=_DSN) as conn,
+        conn.cursor() as cur,
+    ):
+        cur.execute(_ENTRIES_QUERY, params)
+        rows = cur.fetchall()
+
+    return [
+        {
+            "date": inicio.strftime(_DATE_FMT),
+            "project": projeto,
+            "task_code": tarefa,
+            "description": descricao,
+            "area": area,
+            "start": inicio.strftime("%H:%M"),
+            "end": termino.strftime("%H:%M"),
+            "hours": float(horas),
+        }
+        for inicio, termino, projeto, tarefa, descricao, area, horas in rows
+    ]

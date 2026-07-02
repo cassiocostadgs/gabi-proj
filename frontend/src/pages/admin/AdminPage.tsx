@@ -23,6 +23,7 @@ import { competenciaLabel, fmtDatetime } from '../../lib/format'
 import { EquipeSection } from './sections/EquipeSection'
 import { AprovacoesSection } from './sections/AprovacoesSection'
 import { ConfiguracoesSection } from './sections/ConfiguracoesSection'
+import { TaskEntriesSection } from './sections/TaskEntriesSection'
 import axios from 'axios'
 
 const MONTHS_PT: Record<string, string> = {
@@ -157,7 +158,7 @@ function TaskSection() {
   }
 
   return (
-    <section className="mb-8">
+    <section className="mb-8 max-w-2xl">
       <div className="flex items-center gap-2 mb-4">
         <FileSpreadsheet size={16} className="text-slate-400" />
         <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
@@ -403,7 +404,7 @@ function UsersSection() {
   }
 
   return (
-    <section>
+    <section className="max-w-2xl">
       <div className="flex items-center gap-2 mb-4">
         <Users size={16} className="text-slate-400" />
         <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">Usuários</h2>
@@ -566,6 +567,8 @@ export function AdminPage() {
         return <UsersSection />
       case 'team':
         return <EquipeSection />
+      case 'task-entries':
+        return <TaskEntriesSection />
       case 'approvals':
         return <AprovacoesSection />
       case 'settings':
@@ -577,7 +580,7 @@ export function AdminPage() {
 
   return (
     <Layout>
-      <div className="max-w-2xl px-6 py-7">{content}</div>
+      <div className="px-6 py-7">{content}</div>
     </Layout>
   )
 }

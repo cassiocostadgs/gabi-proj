@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { LoginPage } from './pages/login/LoginPage'
 import { ValidatePage } from './pages/validate/ValidatePage'
+import { TaskReportPage } from './pages/task-report/TaskReportPage'
 import { ResultsPage } from './pages/results/ResultsPage'
 import { SubmissionsPage } from './pages/submissions/SubmissionsPage'
 import { SubmissionDetailPage } from './pages/submissions/SubmissionDetailPage'
@@ -21,6 +22,7 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<HomeRedirect />} />
           <Route path="/validate" element={<ValidatePage />} />
+          <Route path="/task-report" element={<TaskReportPage />} />
           <Route path="/results" element={<ResultsPage />} />
           <Route path="/submissions" element={<SubmissionsPage />} />
           <Route path="/submissions/:id" element={<SubmissionDetailPage />} />

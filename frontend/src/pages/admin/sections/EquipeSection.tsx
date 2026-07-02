@@ -113,7 +113,7 @@ export function EquipeSection() {
   }
 
   return (
-    <section>
+    <section className="max-w-2xl">
       {deactivatingId !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <button

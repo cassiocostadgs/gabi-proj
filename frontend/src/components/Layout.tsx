@@ -11,12 +11,14 @@ import {
   Settings2,
   History,
   KeyRound,
+  Table2,
   X,
   Eye,
   EyeOff,
 } from 'lucide-react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
+import { useElementHeight } from '../hooks/useElementHeight'
 import { GabiLogo } from './GabiLogo'
 import { validateService } from '../services/validate.service'
 import { authService } from '../services/auth.service'
@@ -39,6 +41,7 @@ interface LayoutProps {
 const ADMIN_NAV = [
   { to: '/validate', icon: ClipboardCheck, label: 'Validar' },
   { to: '/admin/task', icon: FileSpreadsheet, label: 'Relatório Task' },
+  { to: '/admin/task-entries', icon: Table2, label: 'Task do Time' },
   { to: '/admin/users', icon: Users, label: 'Usuários' },
   { to: '/admin/team', icon: UserCheck, label: 'Equipe' },
   { to: '/admin/approvals', icon: ClipboardList, label: 'Aprovações' },
@@ -47,6 +50,7 @@ const ADMIN_NAV = [
 
 const USER_NAV = [
   { to: '/validate', icon: ClipboardCheck, label: 'Validar' },
+  { to: '/task-report', icon: Table2, label: 'Meu Task' },
   { to: '/submissions', icon: History, label: 'Submissões' },
 ]
 
@@ -254,6 +258,9 @@ function Sidebar({
 export function Layout({ children, title, subtitle, actions }: Readonly<LayoutProps>) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const [mobileHeaderRef, mobileHeaderHeight] = useElementHeight<HTMLElement>()
+  const [contentHeaderRef, contentHeaderHeight] = useElementHeight<HTMLElement>()
+  const totalHeaderHeight = mobileHeaderHeight + contentHeaderHeight
 
   const handleLogout = () => {
     logout()
@@ -267,7 +274,10 @@ export function Layout({ children, title, subtitle, actions }: Readonly<LayoutPr
   })
 
   const mobileHeader = (onLogout: () => void) => (
-    <header className="sm:hidden sticky top-0 z-10 bg-slate-800 border-b border-slate-700 px-5 py-3.5 flex items-center justify-between shrink-0">
+    <header
+      ref={mobileHeaderRef}
+      className="sm:hidden sticky top-0 z-20 bg-slate-800 border-b border-slate-700 px-5 py-3.5 flex items-center justify-between shrink-0"
+    >
       <div className="flex items-center gap-2">
         <GabiLogo size={28} />
         <span className="text-base font-bold text-slate-50 tracking-tight">GABI</span>
@@ -291,7 +301,11 @@ export function Layout({ children, title, subtitle, actions }: Readonly<LayoutPr
   )
 
   const contentHeader = (title || subtitle || actions) && (
-    <header className="sticky top-0 z-10 bg-slate-800 border-b border-slate-700 shadow-[0_1px_0_theme(colors.slate.700)] px-6 py-3.5 flex items-center justify-between gap-4 flex-wrap shrink-0">
+    <header
+      ref={contentHeaderRef}
+      style={{ top: mobileHeaderHeight }}
+      className="sticky z-10 bg-slate-800 border-b border-slate-700 shadow-[0_1px_0_theme(colors.slate.700)] px-6 py-3.5 flex items-center justify-between gap-4 flex-wrap shrink-0"
+    >
       <div>
         {title && <p className="text-sm font-semibold text-slate-100">{title}</p>}
         {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
@@ -300,9 +314,16 @@ export function Layout({ children, title, subtitle, actions }: Readonly<LayoutPr
     </header>
   )
 
+  const stickyOffsetStyle = {
+    '--gabi-header-offset': `${totalHeaderHeight}px`,
+  } as React.CSSProperties
+
   if (user?.is_admin) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col sm:flex-row">
+      <div
+        className="min-h-screen bg-slate-900 flex flex-col sm:flex-row"
+        style={stickyOffsetStyle}
+      >
         {mobileHeader(handleLogout)}
         <Sidebar nav={ADMIN_NAV} user={user} onLogout={handleLogout} />
         <div className="flex-1 flex flex-col min-w-0">
@@ -314,7 +335,7 @@ export function Layout({ children, title, subtitle, actions }: Readonly<LayoutPr
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col sm:flex-row">
+    <div className="min-h-screen bg-slate-900 flex flex-col sm:flex-row" style={stickyOffsetStyle}>
       {mobileHeader(handleLogout)}
       <Sidebar nav={USER_NAV} user={user} onLogout={handleLogout} />
       <div className="flex-1 flex flex-col min-w-0">

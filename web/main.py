@@ -13,6 +13,7 @@ from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 import aiofiles
 import anyio
@@ -25,7 +26,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from pydantic import BaseModel
@@ -43,6 +44,9 @@ TOKEN_EXPIRE_HOURS = 8
 USER_NOT_FOUND = "Usuário não encontrado"
 SUBMISSION_NOT_FOUND = "Submission não encontrada"
 MEMBER_NOT_FOUND = "Membro não encontrado"
+TASK_DB_ERROR = "Erro ao consultar Task DB"
+
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "users.db"
@@ -376,6 +380,195 @@ async def task_competencias():
     return {"competencias": [dict(r) for r in rows]}
 
 
+# ── Routes: task entries report ────────────────────────────────────────────────
+
+
+@app.get("/api/task/default-project")
+async def task_default_project():
+    from repositories.task_repository import get_default_project
+
+    return {"project": get_default_project()}
+
+
+_TASK_REPORT_HEADERS = ["Projeto", "Tarefa", "Descrição", "Início", "Término", "Horas", "Área"]
+_TASK_REPORT_COLUMN_WIDTHS = [14, 10, 42, 10, 10, 10, 16]
+_INDENT_COLUMNS = 1  # blank leftmost column, used only as a visual margin
+_INDENT_COLUMN_WIDTH = 3
+_DESCRIPTION_COLUMN = 3 + _INDENT_COLUMNS
+
+_DAY_HEADER_FILL = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+_COLUMN_HEADER_FILL = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
+_UNEXPECTED_AREA_FILL = PatternFill(start_color="FDE68A", end_color="FDE68A", fill_type="solid")
+_THIN_SIDE = Side(style="thin", color="CBD5E1")
+_THIN_BORDER = Border(left=_THIN_SIDE, right=_THIN_SIDE, top=_THIN_SIDE, bottom=_THIN_SIDE)
+# Projeto, Tarefa, Início, Término, Horas, Área
+_CENTERED_ENTRY_COLUMNS = tuple(c + _INDENT_COLUMNS for c in (1, 2, 4, 5, 6, 7))
+_REPORT_TIMEZONE = ZoneInfo("America/Sao_Paulo")
+
+
+def _append_indented_row(ws, values: list) -> None:
+    ws.append([""] * _INDENT_COLUMNS + values)
+
+
+def _fetch_task_report(responsavel: str, sd: date, ed: date) -> list[dict]:
+    from repositories.task_repository import get_task_entries
+
+    entries = get_task_entries(responsavel, sd, ed)
+    return gabi_engine.build_task_report(entries)
+
+
+async def _task_report_days(email: str, start_date: str, end_date: str) -> list[dict]:
+    from repositories.task_repository import responsavel_from_email
+
+    sd, ed = date.fromisoformat(start_date), date.fromisoformat(end_date)
+    responsavel = responsavel_from_email(email)
+    fetch = functools.partial(_fetch_task_report, responsavel, sd, ed)
+    try:
+        return await anyio.to_thread.run_sync(fetch)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"{TASK_DB_ERROR}: {exc}") from exc
+
+
+def _append_bold_labeled_row(ws, label: str, value: str) -> None:
+    _append_indented_row(ws, [label, value])
+    ws.cell(row=ws.max_row, column=1 + _INDENT_COLUMNS).font = Font(bold=True)
+
+
+def _write_task_report_summary(
+    ws, email: str, start_date: str, end_date: str, total: float
+) -> None:
+    sd, ed = date.fromisoformat(start_date), date.fromisoformat(end_date)
+    periodo = f"{sd:%d/%m/%Y} a {ed:%d/%m/%Y}"
+    _append_indented_row(ws, ["Relatório de Apontamentos Task"])
+    ws.cell(row=ws.max_row, column=1 + _INDENT_COLUMNS).font = Font(bold=True, size=14)
+    ws.append([])
+    _append_bold_labeled_row(ws, "Usuário:", email.upper())
+    _append_bold_labeled_row(ws, "Período:", periodo)
+    _append_bold_labeled_row(ws, "Total do período:", f"{total:.2f}h")
+    ws.append([])
+
+
+def _write_task_report_day_header(ws, day: dict) -> None:
+    _append_indented_row(
+        ws, [day["date"], "", "", "", "", f"Total do dia: {day['total']:.2f}h", ""]
+    )
+    row = ws.max_row
+    start = 1 + _INDENT_COLUMNS
+    ws.merge_cells(start_row=row, start_column=start, end_row=row, end_column=start + 4)
+    ws.merge_cells(start_row=row, start_column=start + 5, end_row=row, end_column=start + 6)
+    for cell in ws[row][_INDENT_COLUMNS:]:
+        cell.fill = _DAY_HEADER_FILL
+        cell.font = Font(bold=True, color="FFFFFF")
+    ws.cell(row=row, column=start + 5).alignment = Alignment(horizontal="right")
+
+
+def _write_task_report_column_header(ws) -> None:
+    _append_indented_row(ws, list(_TASK_REPORT_HEADERS))
+    row = ws.max_row
+    for cell in ws[row][_INDENT_COLUMNS:]:
+        cell.fill = _COLUMN_HEADER_FILL
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.border = _THIN_BORDER
+        cell.alignment = Alignment(horizontal="center")
+
+
+def _write_task_report_entry(ws, entry: dict) -> None:
+    _append_indented_row(
+        ws,
+        [
+            entry["project"],
+            entry["task_code"],
+            entry["description"],
+            entry["start"],
+            entry["end"],
+            entry["hours"],
+            entry["area"],
+        ],
+    )
+    row = ws.max_row
+    for cell in ws[row][_INDENT_COLUMNS:]:
+        cell.border = _THIN_BORDER
+    for col in _CENTERED_ENTRY_COLUMNS:
+        ws.cell(row=row, column=col).alignment = Alignment(horizontal="center")
+    ws.cell(row=row, column=6 + _INDENT_COLUMNS).number_format = "0.00"
+    if entry["unexpected_area"]:
+        ws.cell(row=row, column=7 + _INDENT_COLUMNS).fill = _UNEXPECTED_AREA_FILL
+
+
+def _write_task_report_generation_footer(ws, generated_by: str) -> None:
+    generated_at = datetime.now(tz=_REPORT_TIMEZONE).strftime("%d/%m/%Y %H:%M:%S")
+    ws.append([])
+    _append_indented_row(ws, [f"Gerado por {generated_by} em {generated_at}"])
+
+
+def _description_column_width(days: list[dict]) -> int:
+    header_len = len(_TASK_REPORT_HEADERS[2])  # "Descrição"
+    max_len = max(
+        (len(entry["description"]) for day in days for entry in day["entries"]), default=0
+    )
+    return max(header_len, max_len) + 2
+
+
+def _fill_task_report_worksheet(
+    ws, email: str, start_date: str, end_date: str, days: list[dict], generated_by: str
+) -> None:
+    ws.sheet_view.showGridLines = False
+    total = round(sum(day["total"] for day in days), 2)
+    _write_task_report_summary(ws, email, start_date, end_date, total)
+
+    for day in days:
+        _write_task_report_day_header(ws, day)
+        _write_task_report_column_header(ws)
+        for entry in day["entries"]:
+            _write_task_report_entry(ws, entry)
+        ws.append([])
+
+    _write_task_report_generation_footer(ws, generated_by)
+
+    ws.column_dimensions[get_column_letter(_INDENT_COLUMNS)].width = _INDENT_COLUMN_WIDTH
+    for i, width in enumerate(_TASK_REPORT_COLUMN_WIDTHS, start=1 + _INDENT_COLUMNS):
+        ws.column_dimensions[get_column_letter(i)].width = width
+    ws.column_dimensions[get_column_letter(_DESCRIPTION_COLUMN)].width = _description_column_width(
+        days
+    )
+
+
+def _task_report_xlsx_response(
+    days: list[dict], email: str, start_date: str, end_date: str, filename: str, generated_by: str
+) -> Response:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Apontamentos"
+    _fill_task_report_worksheet(ws, email, start_date, end_date, days, generated_by)
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(
+        content=buf.read(),
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get(
+    "/api/task/my-entries",
+    responses={503: {"description": TASK_DB_ERROR}},
+)
+async def my_task_entries(start_date: str, end_date: str, email: CurrentUser = ""):
+    days = await _task_report_days(email, start_date, end_date)
+    return {"days": days}
+
+
+@app.get(
+    "/api/task/my-entries/export",
+    responses={503: {"description": TASK_DB_ERROR}},
+)
+async def export_my_task_entries(start_date: str, end_date: str, email: CurrentUser = ""):
+    days = await _task_report_days(email, start_date, end_date)
+    filename = f"apontamentos_{start_date}_{end_date}.xlsx"
+    return _task_report_xlsx_response(days, email, start_date, end_date, filename, email)
+
+
 # ── Routes: oracle status (public) ────────────────────────────────────────────
 
 
@@ -438,6 +631,39 @@ async def admin_list_tasks(_: AdminUser):
             " FROM task_uploads ORDER BY id DESC"
         ).fetchall()
     return {"tasks": [dict(r) for r in rows]}
+
+
+NOT_TEAM_MEMBER = "Usuário não faz parte do time"
+
+
+def _require_team_member(email: str) -> None:
+    with _db() as conn:
+        row = conn.execute("SELECT 1 FROM team_members WHERE user_email=?", (email,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=403, detail=NOT_TEAM_MEMBER)
+
+
+@app.get(
+    "/api/admin/task/entries",
+    responses={403: {"description": NOT_TEAM_MEMBER}, 503: {"description": TASK_DB_ERROR}},
+)
+async def admin_task_entries(email: str, start_date: str, end_date: str, _: AdminUser):
+    _require_team_member(email)
+    days = await _task_report_days(email, start_date, end_date)
+    return {"days": days}
+
+
+@app.get(
+    "/api/admin/task/entries/export",
+    responses={403: {"description": NOT_TEAM_MEMBER}, 503: {"description": TASK_DB_ERROR}},
+)
+async def admin_export_task_entries(
+    email: str, start_date: str, end_date: str, admin_email: AdminUser
+):
+    _require_team_member(email)
+    days = await _task_report_days(email, start_date, end_date)
+    filename = f"apontamentos_{email}_{start_date}_{end_date}.xlsx"
+    return _task_report_xlsx_response(days, email, start_date, end_date, filename, admin_email)
 
 
 # ── Routes: validate ──────────────────────────────────────────────────────────
@@ -1286,9 +1512,7 @@ async def download_submission_ga_file(submission_id: int, _: AdminUser):
     if not row:
         raise HTTPException(status_code=404, detail=SUBMISSION_NOT_FOUND)
     content_type = (
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        if row["ga_filename"].endswith(".xlsx")
-        else "application/vnd.ms-excel"
+        XLSX_MEDIA_TYPE if row["ga_filename"].endswith(".xlsx") else "application/vnd.ms-excel"
     )
     return Response(
         content=row["ga_data"],
@@ -1351,7 +1575,7 @@ async def export_billing(competencia: str, _: AdminUser):
     safe = competencia.replace("-", "_")
     return Response(
         content=buf.read(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="faturamento_{safe}.xlsx"'},
     )
 

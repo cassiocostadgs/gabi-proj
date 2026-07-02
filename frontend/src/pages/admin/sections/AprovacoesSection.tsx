@@ -193,7 +193,7 @@ export function AprovacoesSection() {
   }, [competencias, selectedComp])
 
   return (
-    <section className="pb-20">
+    <section className="pb-20 max-w-2xl">
       <div className="sticky top-[57px] sm:top-0 z-10 bg-slate-900 pb-4 border-b border-slate-800">
         <div className="flex items-center gap-2 mb-4">
           <ClipboardList size={16} className="text-slate-400" />

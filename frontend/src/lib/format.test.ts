@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { competenciaLabel, competenciaShort, fmtDatetime, fmtHours, diffClass } from './format'
+import {
+  competenciaLabel,
+  competenciaShort,
+  fmtDatetime,
+  fmtHours,
+  diffClass,
+  monthDateRange,
+  currentCompetencia,
+} from './format'
 
 describe('competenciaLabel', () => {
   it('formats january correctly', () => {
@@ -68,6 +76,26 @@ describe('fmtDatetime', () => {
   it('formats an ISO datetime string', () => {
     const result = fmtDatetime('2025-06-15 10:30:00')
     expect(result).toMatch(/\d{2}\/\d{2}\/\d{4}/)
+  })
+})
+
+describe('monthDateRange', () => {
+  it('returns first and last day for a 31-day month', () => {
+    expect(monthDateRange('2025-01')).toEqual({ startDate: '2025-01-01', endDate: '2025-01-31' })
+  })
+
+  it('returns first and last day for february in a leap year', () => {
+    expect(monthDateRange('2024-02')).toEqual({ startDate: '2024-02-01', endDate: '2024-02-29' })
+  })
+
+  it('returns first and last day for february in a non-leap year', () => {
+    expect(monthDateRange('2025-02')).toEqual({ startDate: '2025-02-01', endDate: '2025-02-28' })
+  })
+})
+
+describe('currentCompetencia', () => {
+  it('matches the YYYY-MM format', () => {
+    expect(currentCompetencia()).toMatch(/^\d{4}-\d{2}$/)
   })
 })
 

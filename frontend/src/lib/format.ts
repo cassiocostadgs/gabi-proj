@@ -65,3 +65,17 @@ export function diffClass(diff: number): string {
   if (diff < -0.05) return 'text-emerald-400'
   return 'text-slate-500'
 }
+
+export function monthDateRange(competencia: string): { startDate: string; endDate: string } {
+  const [y, m] = competencia.split('-').map(Number)
+  const lastDay = new Date(y, m, 0).getDate()
+  return {
+    startDate: `${competencia}-01`,
+    endDate: `${competencia}-${String(lastDay).padStart(2, '0')}`,
+  }
+}
+
+export function currentCompetencia(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}

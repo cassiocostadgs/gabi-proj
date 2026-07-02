@@ -121,7 +121,7 @@ export function ConfiguracoesSection() {
   }
 
   return (
-    <section className="space-y-8">
+    <section className="space-y-8 max-w-2xl">
       {/* CNPJ */}
       <div>
         <div className="flex items-center gap-2 mb-4">

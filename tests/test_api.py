@@ -850,3 +850,171 @@ class TestProcessGaWithOracle:
             person, error = self._call()
         assert error is None
         assert person == mock_person
+
+
+# ── Task entries report ────────────────────────────────────────────────────────
+
+class TestDefaultProject:
+    def test_returns_configured_project(self, client):
+        with patch("repositories.task_repository.get_default_project", return_value="DGS_MAG"):
+            resp = client.get("/api/task/default-project")
+        assert resp.status_code == 200
+        assert resp.json() == {"project": "DGS_MAG"}
+
+
+class TestMyTaskEntries:
+    _ENTRIES = [
+        {
+            "date": "05/01/2025",
+            "project": "DGS_MAG",
+            "task_code": "483",
+            "description": "INCIDENTE 637490",
+            "area": "FATURADO",
+            "start": "08:00",
+            "end": "10:00",
+            "hours": 2.0,
+        },
+        {
+            "date": "05/01/2025",
+            "project": "DGS_MAG",
+            "task_code": "101",
+            "description": "REUNIAO INTERNA",
+            "area": "NAO_FATURADO",
+            "start": "10:00",
+            "end": "11:00",
+            "hours": 1.0,
+        },
+    ]
+    _PARAMS = {"start_date": "2025-01-01", "end_date": "2025-01-31"}
+
+    def test_requires_auth(self, client):
+        resp = client.get("/api/task/my-entries", params=self._PARAMS)
+        assert resp.status_code == 401
+
+    def test_groups_entries_by_day(self, client, auth_headers):
+        with patch("repositories.task_repository.get_task_entries", return_value=self._ENTRIES):
+            resp = client.get("/api/task/my-entries", params=self._PARAMS, headers=auth_headers)
+        assert resp.status_code == 200
+        days = resp.json()["days"]
+        assert len(days) == 1
+        assert days[0]["date"] == "05/01/2025"
+        assert days[0]["total"] == 3.0
+        assert len(days[0]["entries"]) == 2
+
+    def test_flags_unexpected_area(self, client, auth_headers):
+        entries = [{**self._ENTRIES[0], "area": "OUTRA_AREA"}]
+        with patch("repositories.task_repository.get_task_entries", return_value=entries):
+            resp = client.get("/api/task/my-entries", params=self._PARAMS, headers=auth_headers)
+        assert resp.json()["days"][0]["entries"][0]["unexpected_area"] is True
+
+    def test_known_area_is_not_flagged(self, client, auth_headers):
+        with patch("repositories.task_repository.get_task_entries", return_value=self._ENTRIES):
+            resp = client.get("/api/task/my-entries", params=self._PARAMS, headers=auth_headers)
+        assert all(not e["unexpected_area"] for e in resp.json()["days"][0]["entries"])
+
+    def test_export_returns_xlsx(self, client, auth_headers):
+        with patch("repositories.task_repository.get_task_entries", return_value=self._ENTRIES):
+            resp = client.get(
+                "/api/task/my-entries/export", params=self._PARAMS, headers=auth_headers
+            )
+        assert resp.status_code == 200
+        assert "spreadsheet" in resp.headers["content-type"]
+
+    def test_export_requires_auth(self, client):
+        resp = client.get("/api/task/my-entries/export", params=self._PARAMS)
+        assert resp.status_code == 401
+
+    def test_export_highlights_unexpected_area(self, client, auth_headers):
+        entries = [{**self._ENTRIES[0], "area": "OUTRA_AREA"}]
+        with patch("repositories.task_repository.get_task_entries", return_value=entries):
+            resp = client.get(
+                "/api/task/my-entries/export", params=self._PARAMS, headers=auth_headers
+            )
+        assert resp.status_code == 200
+        assert "spreadsheet" in resp.headers["content-type"]
+
+    def test_oracle_error_returns_503(self, client, auth_headers):
+        with patch(
+            "repositories.task_repository.get_task_entries",
+            side_effect=Exception("Connection refused"),
+        ):
+            resp = client.get("/api/task/my-entries", params=self._PARAMS, headers=auth_headers)
+        assert resp.status_code == 503
+        assert "Task DB" in resp.json()["detail"]
+
+
+class TestAdminTaskEntries:
+    _PARAMS = {
+        "email": "tiagohlatki@db1.com.br",
+        "start_date": "2025-01-01",
+        "end_date": "2025-01-31",
+    }
+    _ENTRIES = [
+        {
+            "date": "05/01/2025",
+            "project": "DGS_MAG",
+            "task_code": "1",
+            "description": "X",
+            "area": "FATURADO",
+            "start": "08:00",
+            "end": "09:00",
+            "hours": 1.0,
+        }
+    ]
+
+    def _make_team_member(self, client, auth_headers, email="tiagohlatki@db1.com.br"):
+        client.post(
+            "/api/admin/billing-rates",
+            json={"profile": "pleno", "valor_hora": 180.0},
+            headers=auth_headers,
+        )
+        client.post(
+            "/api/admin/team",
+            json={
+                "user_email": email,
+                "cpf": "111.222.333-44",
+                "subcontrato": "SUB 01",
+                "profile": "pleno",
+            },
+            headers=auth_headers,
+        )
+
+    def test_requires_admin(self, client, auth_headers):
+        client.post(
+            "/api/admin/users",
+            json={"email": "regular@db1.com.br", "password": "senha123", "is_admin": False},
+            headers=auth_headers,
+        )
+        login = client.post(
+            "/auth/login", data={"username": "regular@db1.com.br", "password": "senha123"}
+        )
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        resp = client.get("/api/admin/task/entries", params=self._PARAMS, headers=headers)
+        assert resp.status_code == 403
+
+    def test_rejects_non_team_member(self, client, auth_headers):
+        resp = client.get("/api/admin/task/entries", params=self._PARAMS, headers=auth_headers)
+        assert resp.status_code == 403
+        assert "time" in resp.json()["detail"]
+
+    def test_returns_report_for_team_member(self, client, auth_headers):
+        self._make_team_member(client, auth_headers)
+        with patch("repositories.task_repository.get_task_entries", return_value=self._ENTRIES):
+            resp = client.get("/api/admin/task/entries", params=self._PARAMS, headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["days"][0]["total"] == 1.0
+
+    def test_export_for_team_member(self, client, auth_headers):
+        self._make_team_member(client, auth_headers)
+        with patch("repositories.task_repository.get_task_entries", return_value=self._ENTRIES):
+            resp = client.get(
+                "/api/admin/task/entries/export", params=self._PARAMS, headers=auth_headers
+            )
+        assert resp.status_code == 200
+        assert "spreadsheet" in resp.headers["content-type"]
+
+    def test_export_rejects_non_team_member(self, client, auth_headers):
+        resp = client.get(
+            "/api/admin/task/entries/export", params=self._PARAMS, headers=auth_headers
+        )
+        assert resp.status_code == 403
