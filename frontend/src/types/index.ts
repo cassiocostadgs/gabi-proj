@@ -57,6 +57,11 @@ export interface TaskReportDay {
   total: number
 }
 
+export interface TaskReportExportFilters {
+  onlyFaturado: boolean
+  onlyDefaultProject: boolean
+}
+
 export type DayStatus = 'ok' | 'error' | 'warning' | 'info' | 'r0' | 'r4'
 
 export interface DayResult {

@@ -531,3 +531,23 @@ def build_task_report(entries: list[dict]) -> list[dict]:
         }
         for ds, day_entries in days
     ]
+
+
+def _matches_task_report_filters(entry: dict, only_faturado: bool, project: str | None) -> bool:
+    if only_faturado and entry["area"] != "FATURADO":
+        return False
+    return project is None or entry["project"] == project
+
+
+def filter_task_report(days: list[dict], only_faturado: bool, project: str | None) -> list[dict]:
+    """Keeps entries matching area/project filters, recomputing day totals; drops empty days."""
+    filtered_days = []
+    for day in days:
+        entries = [
+            e for e in day["entries"] if _matches_task_report_filters(e, only_faturado, project)
+        ]
+        if entries:
+            filtered_days.append(
+                {**day, "entries": entries, "total": round(sum(e["hours"] for e in entries), 2)}
+            )
+    return filtered_days

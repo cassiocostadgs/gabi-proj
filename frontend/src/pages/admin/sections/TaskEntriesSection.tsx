@@ -10,6 +10,7 @@ import { taskReportService } from '../../../services/task-report.service'
 import { validateService } from '../../../services/validate.service'
 import { monthDateRange, currentCompetencia } from '../../../lib/format'
 import { downloadBlob } from '../../../lib/utils'
+import type { TaskReportExportFilters } from '../../../types'
 
 export function TaskEntriesSection() {
   const [email, setEmail] = useState('')
@@ -38,7 +39,8 @@ export function TaskEntriesSection() {
   })
 
   const exportMutation = useMutation({
-    mutationFn: () => taskReportService.exportEntriesFor(email, startDate, endDate),
+    mutationFn: (filters: TaskReportExportFilters) =>
+      taskReportService.exportEntriesFor(email, startDate, endDate, filters),
     onSuccess: (blob) => downloadBlob(blob, `apontamentos_${email}_${competencia}.xlsx`),
   })
 
@@ -83,7 +85,7 @@ export function TaskEntriesSection() {
             days={days}
             isLoading={isLoading}
             defaultProject={defaultProject}
-            onExport={() => exportMutation.mutate()}
+            onExport={(filters) => exportMutation.mutate(filters)}
             isExporting={exportMutation.isPending}
           />
         ) : (

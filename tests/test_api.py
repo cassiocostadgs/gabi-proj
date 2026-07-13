@@ -1,5 +1,13 @@
 from datetime import date
+from io import BytesIO
 from unittest.mock import patch
+
+import openpyxl
+
+
+def _xlsx_cell_values(content: bytes) -> set:
+    ws = openpyxl.load_workbook(BytesIO(content)).active
+    return {cell for row in ws.iter_rows(values_only=True) for cell in row if cell is not None}
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -862,6 +870,54 @@ class TestDefaultProject:
         assert resp.json() == {"project": "DGS_MAG"}
 
 
+class TestFilterTaskReport:
+    _DAYS = [
+        {
+            "date": "05/01/2025",
+            "total": 7.0,
+            "entries": [
+                {"project": "DGS_MAG", "area": "FATURADO", "hours": 2.0},
+                {"project": "DGS_MAG", "area": "NAO_FATURADO", "hours": 1.0},
+                {"project": "OUTRO_PROJETO", "area": "FATURADO", "hours": 4.0},
+            ],
+        }
+    ]
+
+    def test_no_filters_keeps_all_entries(self):
+        import gabi_engine
+
+        result = gabi_engine.filter_task_report(self._DAYS, only_faturado=False, project=None)
+        assert len(result[0]["entries"]) == 3
+        assert result[0]["total"] == 7.0
+
+    def test_only_faturado_drops_other_areas(self):
+        import gabi_engine
+
+        result = gabi_engine.filter_task_report(self._DAYS, only_faturado=True, project=None)
+        assert {e["area"] for e in result[0]["entries"]} == {"FATURADO"}
+        assert result[0]["total"] == 6.0
+
+    def test_project_filter_drops_other_projects(self):
+        import gabi_engine
+
+        result = gabi_engine.filter_task_report(self._DAYS, only_faturado=False, project="DGS_MAG")
+        assert len(result[0]["entries"]) == 2
+        assert result[0]["total"] == 3.0
+
+    def test_combines_area_and_project_filters(self):
+        import gabi_engine
+
+        result = gabi_engine.filter_task_report(self._DAYS, only_faturado=True, project="DGS_MAG")
+        assert len(result[0]["entries"]) == 1
+        assert result[0]["total"] == 2.0
+
+    def test_drops_days_left_with_no_entries(self):
+        import gabi_engine
+
+        result = gabi_engine.filter_task_report(self._DAYS, only_faturado=True, project="NENHUM")
+        assert result == []
+
+
 class TestMyTaskEntries:
     _ENTRIES = [
         {
@@ -926,12 +982,54 @@ class TestMyTaskEntries:
 
     def test_export_highlights_unexpected_area(self, client, auth_headers):
         entries = [{**self._ENTRIES[0], "area": "OUTRA_AREA"}]
+        params = {**self._PARAMS, "only_faturado": "false"}
         with patch("repositories.task_repository.get_task_entries", return_value=entries):
+            resp = client.get("/api/task/my-entries/export", params=params, headers=auth_headers)
+        assert resp.status_code == 200
+        assert "spreadsheet" in resp.headers["content-type"]
+
+    def test_export_defaults_to_faturado_and_default_project_only(self, client, auth_headers):
+        with (
+            patch("repositories.task_repository.get_task_entries", return_value=self._ENTRIES),
+            patch("repositories.task_repository.get_default_project", return_value="DGS_MAG"),
+        ):
             resp = client.get(
                 "/api/task/my-entries/export", params=self._PARAMS, headers=auth_headers
             )
-        assert resp.status_code == 200
-        assert "spreadsheet" in resp.headers["content-type"]
+        values = _xlsx_cell_values(resp.content)
+        assert "INCIDENTE 637490" in values
+        assert "REUNIAO INTERNA" not in values
+
+    def test_export_only_faturado_false_includes_all_areas(self, client, auth_headers):
+        params = {**self._PARAMS, "only_faturado": "false"}
+        with patch("repositories.task_repository.get_task_entries", return_value=self._ENTRIES):
+            resp = client.get("/api/task/my-entries/export", params=params, headers=auth_headers)
+        values = _xlsx_cell_values(resp.content)
+        assert "INCIDENTE 637490" in values
+        assert "REUNIAO INTERNA" in values
+
+    def test_export_only_default_project_false_includes_other_projects(
+        self, client, auth_headers
+    ):
+        entries = [{**self._ENTRIES[0], "project": "OUTRO_PROJETO", "description": "OUTRO"}]
+        params = {**self._PARAMS, "only_default_project": "false"}
+        with (
+            patch("repositories.task_repository.get_task_entries", return_value=entries),
+            patch("repositories.task_repository.get_default_project", return_value="DGS_MAG"),
+        ):
+            resp = client.get("/api/task/my-entries/export", params=params, headers=auth_headers)
+        assert "OUTRO" in _xlsx_cell_values(resp.content)
+
+    def test_export_default_project_filter_excludes_other_projects(self, client, auth_headers):
+        entries = [{**self._ENTRIES[0], "project": "OUTRO_PROJETO", "description": "OUTRO"}]
+        with (
+            patch("repositories.task_repository.get_task_entries", return_value=entries),
+            patch("repositories.task_repository.get_default_project", return_value="DGS_MAG"),
+        ):
+            resp = client.get(
+                "/api/task/my-entries/export", params=self._PARAMS, headers=auth_headers
+            )
+        assert "OUTRO" not in _xlsx_cell_values(resp.content)
 
     def test_oracle_error_returns_503(self, client, auth_headers):
         with patch(
@@ -1018,3 +1116,17 @@ class TestAdminTaskEntries:
             "/api/admin/task/entries/export", params=self._PARAMS, headers=auth_headers
         )
         assert resp.status_code == 403
+
+    def test_export_applies_area_filter_by_default(self, client, auth_headers):
+        self._make_team_member(client, auth_headers)
+        entries = [*self._ENTRIES, {**self._ENTRIES[0], "area": "NAO_FATURADO", "description": "Y"}]
+        with (
+            patch("repositories.task_repository.get_task_entries", return_value=entries),
+            patch("repositories.task_repository.get_default_project", return_value="DGS_MAG"),
+        ):
+            resp = client.get(
+                "/api/admin/task/entries/export", params=self._PARAMS, headers=auth_headers
+            )
+        values = _xlsx_cell_values(resp.content)
+        assert "X" in values
+        assert "Y" not in values

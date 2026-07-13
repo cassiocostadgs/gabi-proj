@@ -7,6 +7,7 @@ import { taskReportService } from '../../services/task-report.service'
 import { validateService } from '../../services/validate.service'
 import { monthDateRange, currentCompetencia } from '../../lib/format'
 import { downloadBlob } from '../../lib/utils'
+import type { TaskReportExportFilters } from '../../types'
 
 export function TaskReportPage() {
   const [competencia, setCompetencia] = useState(currentCompetencia())
@@ -28,7 +29,8 @@ export function TaskReportPage() {
   })
 
   const exportMutation = useMutation({
-    mutationFn: () => taskReportService.exportMyEntries(startDate, endDate),
+    mutationFn: (filters: TaskReportExportFilters) =>
+      taskReportService.exportMyEntries(startDate, endDate, filters),
     onSuccess: (blob) => downloadBlob(blob, `apontamentos_${competencia}.xlsx`),
   })
 
@@ -45,7 +47,7 @@ export function TaskReportPage() {
           days={days}
           isLoading={isLoading}
           defaultProject={defaultProject}
-          onExport={() => exportMutation.mutate()}
+          onExport={(filters) => exportMutation.mutate(filters)}
           isExporting={exportMutation.isPending}
         />
       </div>

@@ -20,9 +20,9 @@ import anyio
 import bcrypt
 import openpyxl
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
@@ -33,8 +33,11 @@ from pydantic import BaseModel
 
 load_dotenv()
 
+import client_evaluation_engine  # noqa: E402
 import gabi_engine  # noqa: E402
+import repositories.client_evaluation_repository as client_evaluation_repository  # noqa: E402
 from core.oracle import is_oracle_configured, try_init_oracle_client  # noqa: E402
+from db import _db  # noqa: E402
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -87,12 +90,6 @@ def _verify(plain: str, hashed: str) -> bool:
 
 
 # ── Database ──────────────────────────────────────────────────────────────────
-
-
-def _db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 def _init_db() -> None:
@@ -165,6 +162,46 @@ def _init_db() -> None:
         )
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('billing_email_to', '')")
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('billing_email_tag', '')")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS client_evaluations (
+                id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                competencia              TEXT    NOT NULL,
+                nome_extraido            TEXT    NOT NULL,
+                user_email               TEXT,
+                match_status             TEXT    NOT NULL,
+                fornecedor_validado      INTEGER NOT NULL,
+                comportamental_nota      INTEGER,
+                comportamental_comentario TEXT,
+                tecnica_nota             INTEGER,
+                tecnica_comentario       TEXT,
+                prazo_nota               INTEGER,
+                prazo_comentario         TEXT,
+                comentario_geral         TEXT,
+                raw_email_text           TEXT    NOT NULL,
+                email_message_id         TEXT,
+                origem                   TEXT    NOT NULL,
+                status                   TEXT    NOT NULL DEFAULT 'rascunho',
+                created_by               TEXT    NOT NULL,
+                created_at               TIMESTAMP NOT NULL DEFAULT (datetime('now')),
+                reviewed_by              TEXT,
+                reviewed_at              TIMESTAMP,
+                edited_by                TEXT,
+                edited_at                TIMESTAMP
+            )
+        """)
+        # Partial index — prevents duplicate approved records; rascunho can coexist with aprovado
+        # (required for the confirm_override re-ingest path — see TC-12).
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_ce_user_competencia
+              ON client_evaluations (user_email, competencia)
+              WHERE user_email IS NOT NULL AND status = 'aprovado'
+        """)
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_ce_message_id
+              ON client_evaluations (email_message_id)
+              WHERE email_message_id IS NOT NULL
+        """)
 
         # Migrations for existing installs
         for ddl in [
@@ -429,6 +466,15 @@ async def _task_report_days(email: str, start_date: str, end_date: str) -> list[
         raise HTTPException(status_code=503, detail=f"{TASK_DB_ERROR}: {exc}") from exc
 
 
+def _apply_task_report_filters(
+    days: list[dict], only_faturado: bool, only_default_project: bool
+) -> list[dict]:
+    from repositories.task_repository import get_default_project
+
+    project = get_default_project() if only_default_project else None
+    return gabi_engine.filter_task_report(days, only_faturado, project)
+
+
 def _append_bold_labeled_row(ws, label: str, value: str) -> None:
     _append_indented_row(ws, [label, value])
     ws.cell(row=ws.max_row, column=1 + _INDENT_COLUMNS).font = Font(bold=True)
@@ -563,8 +609,15 @@ async def my_task_entries(start_date: str, end_date: str, email: CurrentUser = "
     "/api/task/my-entries/export",
     responses={503: {"description": TASK_DB_ERROR}},
 )
-async def export_my_task_entries(start_date: str, end_date: str, email: CurrentUser = ""):
+async def export_my_task_entries(
+    start_date: str,
+    end_date: str,
+    only_faturado: bool = True,
+    only_default_project: bool = True,
+    email: CurrentUser = "",
+):
     days = await _task_report_days(email, start_date, end_date)
+    days = _apply_task_report_filters(days, only_faturado, only_default_project)
     filename = f"apontamentos_{start_date}_{end_date}.xlsx"
     return _task_report_xlsx_response(days, email, start_date, end_date, filename, email)
 
@@ -658,10 +711,16 @@ async def admin_task_entries(email: str, start_date: str, end_date: str, _: Admi
     responses={403: {"description": NOT_TEAM_MEMBER}, 503: {"description": TASK_DB_ERROR}},
 )
 async def admin_export_task_entries(
-    email: str, start_date: str, end_date: str, admin_email: AdminUser
+    email: str,
+    start_date: str,
+    end_date: str,
+    admin_email: AdminUser,
+    only_faturado: bool = True,
+    only_default_project: bool = True,
 ):
     _require_team_member(email)
     days = await _task_report_days(email, start_date, end_date)
+    days = _apply_task_report_filters(days, only_faturado, only_default_project)
     filename = f"apontamentos_{email}_{start_date}_{end_date}.xlsx"
     return _task_report_xlsx_response(days, email, start_date, end_date, filename, admin_email)
 
@@ -1578,6 +1637,309 @@ async def export_billing(competencia: str, _: AdminUser):
         media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="faturamento_{safe}.xlsx"'},
     )
+
+
+# ── API key auth (machine-to-machine) ────────────────────────────────────────
+
+
+def _require_api_key(request: Request) -> None:
+    key = request.headers.get("X-Api-Key", "")
+    expected = os.getenv("MAG_EVAL_API_KEY", "")
+    if not expected or key != expected:
+        raise HTTPException(status_code=401, detail="API key inválida ou ausente")
+
+
+# ── Routes: client evaluations (admin) ───────────────────────────────────────
+
+CE_NOT_FOUND = "Avaliação não encontrada"
+
+
+class IngestRequest(BaseModel):
+    email_body: str
+
+
+class UpdateEvaluationRequest(BaseModel):
+    user_email: str | None = None
+    comportamental_nota: int | None = None
+    comportamental_comentario: str | None = None
+    tecnica_nota: int | None = None
+    tecnica_comentario: str | None = None
+    prazo_nota: int | None = None
+    prazo_comentario: str | None = None
+    comentario_geral: str | None = None
+
+
+class MagEvalRequest(BaseModel):
+    content: str
+    subject: str
+    internetMessageId: str  # noqa: N815
+    receivedDateTime: str  # noqa: N815
+
+
+def _ce_row_to_dict(row) -> dict:
+    return dict(row) if row else {}
+
+
+def _active_team_emails() -> list:
+    return [r["user_email"] for r in client_evaluation_repository.list_team_members_active()]
+
+
+@app.post(
+    "/api/admin/client-evaluations/ingest",
+    status_code=201,
+    responses={
+        409: {"description": "Registro duplicado"},
+        422: {"description": "Falha no parse do e-mail"},
+    },
+)
+async def admin_ingest_evaluation(
+    body: IngestRequest,
+    admin: AdminUser,
+    confirm_override: bool = False,
+):
+    try:
+        parsed = client_evaluation_engine.parse_evaluation(body.email_body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    active_emails = _active_team_emails()
+    user_email, match_status = client_evaluation_engine.auto_link(
+        parsed["nome_extraido"], active_emails
+    )
+
+    # Deduplication rule 2 — by (user_email, competencia) when user_email resolved
+    if user_email:
+        existing = client_evaluation_repository.find_by_email_competencia(
+            user_email, parsed["competencia"]
+        )
+        if existing:
+            if existing["status"] == "aprovado" and confirm_override:
+                pass  # allow new rascunho alongside the approved record
+            elif existing["status"] == "aprovado":
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": (
+                            f"Registro duplicado: {parsed['nome_extraido']} já possui"
+                            f" avaliação aprovada para {parsed['competencia']}"
+                        ),
+                        "requires_override": True,
+                    },
+                )
+            else:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Registro duplicado: {parsed['nome_extraido']} já possui"
+                        f" avaliação para {parsed['competencia']}"
+                    ),
+                )
+    else:
+        # Deduplication rule 3 — by normalized nome_extraido when user_email not resolved
+        if client_evaluation_repository.find_by_name_competencia(
+            parsed["nome_extraido"], parsed["competencia"]
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Registro duplicado: {parsed['nome_extraido']} já possui"
+                    f" avaliação para {parsed['competencia']}"
+                ),
+            )
+
+    record_id = client_evaluation_repository.insert_draft(
+        competencia=parsed["competencia"],
+        nome_extraido=parsed["nome_extraido"],
+        user_email=user_email,
+        match_status=match_status,
+        fornecedor_validado=parsed["fornecedor_validado"],
+        comportamental_nota=parsed["comportamental_nota"],
+        comportamental_comentario=parsed["comportamental_comentario"],
+        tecnica_nota=parsed["tecnica_nota"],
+        tecnica_comentario=parsed["tecnica_comentario"],
+        prazo_nota=parsed["prazo_nota"],
+        prazo_comentario=parsed["prazo_comentario"],
+        comentario_geral=parsed["comentario_geral"],
+        raw_email_text=body.email_body,
+        email_message_id=None,
+        origem="manual",
+        created_by=admin,
+    )
+    return {
+        "id": record_id,
+        "status": "rascunho",
+        "origem": "manual",
+        "competencia": parsed["competencia"],
+    }
+
+
+@app.get("/api/admin/client-evaluations")
+async def admin_list_evaluations(
+    _: AdminUser,
+    status: str | None = None,
+):
+    rows = client_evaluation_repository.list_all(status_filter=status)
+    return {"evaluations": [_ce_row_to_dict(r) for r in rows]}
+
+
+# IMPORTANT: this route is registered BEFORE /{id} to avoid FastAPI path conflict.
+@app.get("/api/admin/client-evaluations/dashboard")
+async def admin_dashboard(
+    _: AdminUser,
+    user_email: str | None = None,
+    competencia_from: str | None = None,
+    competencia_to: str | None = None,
+):
+    rows = client_evaluation_repository.get_dashboard(
+        user_email_filter=user_email,
+        competencia_from=competencia_from,
+        competencia_to=competencia_to,
+    )
+    return {"data": [_ce_row_to_dict(r) for r in rows]}
+
+
+@app.get("/api/admin/client-evaluations/{record_id}")
+async def admin_get_evaluation(record_id: int, _: AdminUser):
+    row = client_evaluation_repository.get_by_id(record_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=CE_NOT_FOUND)
+    return _ce_row_to_dict(row)
+
+
+@app.patch(
+    "/api/admin/client-evaluations/{record_id}",
+    responses={
+        404: {"description": CE_NOT_FOUND},
+        409: {"description": "Registro aprovado é imutável"},
+    },
+)
+async def admin_update_evaluation(
+    record_id: int,
+    body: UpdateEvaluationRequest,
+    admin: AdminUser,
+):
+    row = client_evaluation_repository.get_by_id(record_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=CE_NOT_FOUND)
+    if row["status"] == "aprovado":
+        raise HTTPException(status_code=409, detail="Registro aprovado é imutável")
+
+    fields = body.model_dump(exclude_unset=True)
+    edited_at = datetime.now(tz=UTC).isoformat()
+    client_evaluation_repository.update_draft(record_id, fields, admin, edited_at)
+    return {"ok": True}
+
+
+@app.post(
+    "/api/admin/client-evaluations/{record_id}/approve",
+    responses={
+        404: {"description": CE_NOT_FOUND},
+        409: {"description": "Registro já aprovado"},
+        422: {"description": "Profissional não vinculado"},
+    },
+)
+async def admin_approve_evaluation(record_id: int, admin: AdminUser):
+    row = client_evaluation_repository.get_by_id(record_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=CE_NOT_FOUND)
+    if row["status"] == "aprovado":
+        raise HTTPException(status_code=409, detail="Registro já aprovado")
+    if not row["user_email"]:
+        raise HTTPException(
+            status_code=422,
+            detail="Profissional não vinculado — resolva o vínculo antes de aprovar",
+        )
+    reviewed_at = datetime.now(tz=UTC).isoformat()
+    client_evaluation_repository.update_status(record_id, "aprovado", admin, reviewed_at)
+    return {"ok": True}
+
+
+@app.post(
+    "/api/admin/client-evaluations/{record_id}/reject",
+    responses={404: {"description": CE_NOT_FOUND}},
+)
+async def admin_reject_evaluation(record_id: int, admin: AdminUser):
+    row = client_evaluation_repository.get_by_id(record_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=CE_NOT_FOUND)
+    reviewed_at = datetime.now(tz=UTC).isoformat()
+    client_evaluation_repository.update_status(record_id, "rejeitado", admin, reviewed_at)
+    return {"ok": True}
+
+
+@app.post(
+    "/api/integrations/mag-evaluation",
+    status_code=201,
+    responses={
+        200: {"description": "Skipped (duplicate)"},
+        201: {"description": "Draft created"},
+        401: {"description": "API key inválida ou ausente"},
+        422: {"description": "Falha no parse"},
+    },
+)
+async def integration_mag_evaluation(
+    request: Request,
+    body: MagEvalRequest,
+    _: None = Depends(_require_api_key),
+):
+    _skipped = JSONResponse(content={"ok": True, "skipped": True}, status_code=200)
+
+    # Deduplication rule 1 — by internetMessageId (before parsing)
+    existing_by_msg = client_evaluation_repository.find_by_message_id(body.internetMessageId)
+    if existing_by_msg:
+        return _skipped
+
+    content_plain = client_evaluation_engine.strip_html(body.content)
+
+    try:
+        parsed = client_evaluation_engine.parse_evaluation(content_plain)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    active_emails = _active_team_emails()
+    user_email, match_status = client_evaluation_engine.auto_link(
+        parsed["nome_extraido"], active_emails
+    )
+
+    # Deduplication rules 2 & 3 — silent skip on automated path
+    if user_email:
+        competencia = parsed["competencia"]
+        if client_evaluation_repository.find_by_email_competencia(user_email, competencia):
+            return _skipped
+    else:
+        if client_evaluation_repository.find_by_name_competencia(
+            parsed["nome_extraido"], parsed["competencia"]
+        ):
+            return _skipped
+
+    record_id = client_evaluation_repository.insert_draft(
+        competencia=parsed["competencia"],
+        nome_extraido=parsed["nome_extraido"],
+        user_email=user_email,
+        match_status=match_status,
+        fornecedor_validado=parsed["fornecedor_validado"],
+        comportamental_nota=parsed["comportamental_nota"],
+        comportamental_comentario=parsed["comportamental_comentario"],
+        tecnica_nota=parsed["tecnica_nota"],
+        tecnica_comentario=parsed["tecnica_comentario"],
+        prazo_nota=parsed["prazo_nota"],
+        prazo_comentario=parsed["prazo_comentario"],
+        comentario_geral=parsed["comentario_geral"],
+        raw_email_text=content_plain,
+        email_message_id=body.internetMessageId,
+        origem="automacao",
+        created_by="automacao",
+    )
+    return {"ok": True, "id": record_id}
+
+
+# ── Routes: professional view ─────────────────────────────────────────────────
+
+
+@app.get("/api/my-evaluations")
+async def my_evaluations(email: CurrentUser):
+    rows = client_evaluation_repository.get_my_evaluations(email)
+    return {"evaluations": [_ce_row_to_dict(r) for r in rows]}
 
 
 # ── Startup + static ──────────────────────────────────────────────────────────

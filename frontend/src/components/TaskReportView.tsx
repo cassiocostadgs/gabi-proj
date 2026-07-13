@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Download, AlertTriangle, Info } from 'lucide
 import { MonthPicker } from './MonthPicker'
 import { Spinner } from './Spinner'
 import { competenciaLabel } from '../lib/format'
-import type { TaskReportDay } from '../types'
+import type { TaskReportDay, TaskReportExportFilters } from '../types'
 
 const TABLE_HEADERS = ['Projeto', 'Tarefa', 'Descrição', 'Início', 'Término', 'Horas', 'Área']
 
@@ -134,7 +134,7 @@ interface TaskReportViewProps {
   days: TaskReportDay[]
   isLoading: boolean
   defaultProject: string | null
-  onExport: () => void
+  onExport: (filters: TaskReportExportFilters) => void
   isExporting: boolean
 }
 
@@ -185,8 +185,8 @@ export function TaskReportView({
           </div>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={onExport}
-              disabled={isExporting || days.length === 0}
+              onClick={() => onExport({ onlyFaturado, onlyDefaultProject })}
+              disabled={isExporting || filteredDays.length === 0}
               className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 border border-slate-600 hover:border-blue-500 disabled:opacity-50 text-sm text-slate-200 rounded-lg transition-colors"
             >
               {isExporting ? <Spinner size="sm" /> : <Download size={14} />}
@@ -197,8 +197,7 @@ export function TaskReportView({
                 <Info size={15} />
               </span>
               <div className="absolute bottom-full right-0 mb-2 w-56 px-3 py-2 rounded-lg text-[11px] leading-snug text-slate-300 bg-slate-900 border border-slate-700 shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-20">
-                Exportação sempre inclui todos os projetos e áreas, independentemente dos filtros
-                abaixo.
+                A exportação considera os filtros selecionados abaixo.
               </div>
             </div>
           </div>
