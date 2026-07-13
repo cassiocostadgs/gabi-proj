@@ -25,7 +25,7 @@ _EXPECTED_FORNECEDOR = "DB1 Global Software"
 def _parse_score(value: str, dimension: str) -> int:
     try:
         score = int(value)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         raise ValueError(
             f"Nota inválida para '{dimension}': '{value}' não é um número inteiro"
         ) from None
@@ -42,6 +42,83 @@ def _next_non_empty(lines: list, start: int) -> tuple:
     return j, (lines[j].strip() if j < len(lines) else "")
 
 
+def _extract_competencia(match: re.Match) -> str:
+    month, year = int(match.group(1)), int(match.group(2))
+    return f"{year:04d}-{month:02d}"
+
+
+_SIMPLE_MATCHERS = (
+    ("competencia", _COMPETENCIA_RE, _extract_competencia),
+    ("nome_extraido", _COLABORADOR_RE, lambda m: m.group(1).strip()),
+    ("fornecedor", _FORNECEDOR_RE, lambda m: m.group(1).strip()),
+    ("comentario_geral", _FEEDBACK_RE, lambda m: m.group(1).strip()),
+)
+
+_DIMENSION_MATCHERS = (
+    ("comportamental", _COMPORTAMENTAL_RE, "Comportamental"),
+    ("tecnica", _TECNICA_RE, "Técnica"),
+    ("prazo", _PRAZO_RE, "Prazos de entrega"),
+)
+
+_REQUIRED_FIELDS = (
+    ("Competência", "competencia"),
+    ("Colaborador", "nome_extraido"),
+    ("Fornecedor", "fornecedor"),
+    ("Avaliação Comportamental", "comportamental_nota"),
+    ("Avaliação Técnica", "tecnica_nota"),
+    ("Avaliação Prazos de entrega", "prazo_nota"),
+)
+
+
+def _match_simple_field(line: str, fields: dict) -> bool:
+    """Try each single-value matcher against line; record the first hit in fields."""
+    for key, pattern, extract in _SIMPLE_MATCHERS:
+        match = pattern.match(line)
+        if match:
+            fields[key] = extract(match)
+            return True
+    return False
+
+
+def _consume_score_section(
+    lines: list, i: int, match: re.Match, dimension: str, has_feedback_label: bool
+):
+    """Parse a dimension's score, then optionally consume its free-text comment line."""
+    nota = _parse_score(match.group(1).strip(), dimension)
+    i += 1
+    comentario = None
+    if not has_feedback_label:
+        j, next_line = _next_non_empty(lines, i)
+        if next_line and not _IS_SECTION_RE.match(next_line):
+            comentario = next_line
+            i = j + 1
+    return nota, comentario, i
+
+
+def _match_dimension_field(lines: list, i: int, line: str, fields: dict, has_feedback_label: bool):
+    """Try each dimension matcher against line; return the next index, or None if no match."""
+    for key, pattern, dimension in _DIMENSION_MATCHERS:
+        match = pattern.match(line)
+        if match:
+            nota, comentario, next_i = _consume_score_section(
+                lines, i, match, dimension, has_feedback_label
+            )
+            fields[f"{key}_nota"] = nota
+            fields[f"{key}_comentario"] = comentario
+            return next_i
+    return None
+
+
+def _validate_required_fields(fields: dict) -> None:
+    missing = [name for name, key in _REQUIRED_FIELDS if fields.get(key) is None]
+    if missing:
+        raise ValueError(f"Campo(s) obrigatório(s) ausente(s): {', '.join(missing)}")
+
+    fornecedor = fields["fornecedor"]
+    if fornecedor != _EXPECTED_FORNECEDOR:
+        raise ValueError(f"Fornecedor inválido: '{fornecedor}'. Esperado: '{_EXPECTED_FORNECEDOR}'")
+
+
 def parse_evaluation(text: str) -> dict:
     """
     Parse a MAG client evaluation plain-text email body.
@@ -52,16 +129,20 @@ def parse_evaluation(text: str) -> dict:
     lines = text.splitlines()
     has_feedback_label = any(re.match(r"\s*Feedback:", line, re.IGNORECASE) for line in lines)
 
-    competencia = None
-    nome_extraido = None
-    fornecedor = None
-    comportamental_nota = None
-    comportamental_comentario = None
-    tecnica_nota = None
-    tecnica_comentario = None
-    prazo_nota = None
-    prazo_comentario = None
-    comentario_geral = None
+    fields: dict = dict.fromkeys(
+        (
+            "competencia",
+            "nome_extraido",
+            "fornecedor",
+            "comportamental_nota",
+            "comportamental_comentario",
+            "tecnica_nota",
+            "tecnica_comentario",
+            "prazo_nota",
+            "prazo_comentario",
+            "comentario_geral",
+        )
+    )
 
     i = 0
     while i < len(lines):
@@ -70,95 +151,26 @@ def parse_evaluation(text: str) -> dict:
             i += 1
             continue
 
-        m = _COMPETENCIA_RE.match(line)
-        if m:
-            month, year = int(m.group(1)), int(m.group(2))
-            competencia = f"{year:04d}-{month:02d}"
+        if _match_simple_field(line, fields):
             i += 1
             continue
 
-        m = _COLABORADOR_RE.match(line)
-        if m:
-            nome_extraido = m.group(1).strip()
-            i += 1
-            continue
+        next_i = _match_dimension_field(lines, i, line, fields, has_feedback_label)
+        i = next_i if next_i is not None else i + 1
 
-        m = _FORNECEDOR_RE.match(line)
-        if m:
-            fornecedor = m.group(1).strip()
-            i += 1
-            continue
-
-        m = _COMPORTAMENTAL_RE.match(line)
-        if m:
-            comportamental_nota = _parse_score(m.group(1).strip(), "Comportamental")
-            i += 1
-            if not has_feedback_label:
-                j, next_line = _next_non_empty(lines, i)
-                if next_line and not _IS_SECTION_RE.match(next_line):
-                    comportamental_comentario = next_line
-                    i = j + 1
-            continue
-
-        m = _TECNICA_RE.match(line)
-        if m:
-            tecnica_nota = _parse_score(m.group(1).strip(), "Técnica")
-            i += 1
-            if not has_feedback_label:
-                j, next_line = _next_non_empty(lines, i)
-                if next_line and not _IS_SECTION_RE.match(next_line):
-                    tecnica_comentario = next_line
-                    i = j + 1
-            continue
-
-        m = _PRAZO_RE.match(line)
-        if m:
-            prazo_nota = _parse_score(m.group(1).strip(), "Prazos de entrega")
-            i += 1
-            if not has_feedback_label:
-                j, next_line = _next_non_empty(lines, i)
-                if next_line and not _IS_SECTION_RE.match(next_line):
-                    prazo_comentario = next_line
-                    i = j + 1
-            continue
-
-        m = _FEEDBACK_RE.match(line)
-        if m:
-            comentario_geral = m.group(1).strip()
-            i += 1
-            continue
-
-        i += 1
-
-    missing = [
-        name
-        for name, val in [
-            ("Competência", competencia),
-            ("Colaborador", nome_extraido),
-            ("Fornecedor", fornecedor),
-            ("Avaliação Comportamental", comportamental_nota),
-            ("Avaliação Técnica", tecnica_nota),
-            ("Avaliação Prazos de entrega", prazo_nota),
-        ]
-        if val is None
-    ]
-    if missing:
-        raise ValueError(f"Campo(s) obrigatório(s) ausente(s): {', '.join(missing)}")
-
-    if fornecedor != _EXPECTED_FORNECEDOR:
-        raise ValueError(f"Fornecedor inválido: '{fornecedor}'. Esperado: '{_EXPECTED_FORNECEDOR}'")
+    _validate_required_fields(fields)
 
     return {
-        "competencia": competencia,
-        "nome_extraido": nome_extraido,
+        "competencia": fields["competencia"],
+        "nome_extraido": fields["nome_extraido"],
         "fornecedor_validado": 1,
-        "comportamental_nota": comportamental_nota,
-        "comportamental_comentario": comportamental_comentario,
-        "tecnica_nota": tecnica_nota,
-        "tecnica_comentario": tecnica_comentario,
-        "prazo_nota": prazo_nota,
-        "prazo_comentario": prazo_comentario,
-        "comentario_geral": comentario_geral,
+        "comportamental_nota": fields["comportamental_nota"],
+        "comportamental_comentario": fields["comportamental_comentario"],
+        "tecnica_nota": fields["tecnica_nota"],
+        "tecnica_comentario": fields["tecnica_comentario"],
+        "prazo_nota": fields["prazo_nota"],
+        "prazo_comentario": fields["prazo_comentario"],
+        "comentario_geral": fields["comentario_geral"],
     }
 
 

@@ -1748,18 +1748,9 @@ async def admin_ingest_evaluation(
             )
 
     record_id = client_evaluation_repository.insert_draft(
-        competencia=parsed["competencia"],
-        nome_extraido=parsed["nome_extraido"],
+        parsed=parsed,
         user_email=user_email,
         match_status=match_status,
-        fornecedor_validado=parsed["fornecedor_validado"],
-        comportamental_nota=parsed["comportamental_nota"],
-        comportamental_comentario=parsed["comportamental_comentario"],
-        tecnica_nota=parsed["tecnica_nota"],
-        tecnica_comentario=parsed["tecnica_comentario"],
-        prazo_nota=parsed["prazo_nota"],
-        prazo_comentario=parsed["prazo_comentario"],
-        comentario_geral=parsed["comentario_geral"],
         raw_email_text=body.email_body,
         email_message_id=None,
         origem="manual",
@@ -1798,7 +1789,10 @@ async def admin_dashboard(
     return {"data": [_ce_row_to_dict(r) for r in rows]}
 
 
-@app.get("/api/admin/client-evaluations/{record_id}")
+@app.get(
+    "/api/admin/client-evaluations/{record_id}",
+    responses={404: {"description": CE_NOT_FOUND}},
+)
 async def admin_get_evaluation(record_id: int, _: AdminUser):
     row = client_evaluation_repository.get_by_id(record_id)
     if not row:
@@ -1880,7 +1874,7 @@ async def admin_reject_evaluation(record_id: int, admin: AdminUser):
 async def integration_mag_evaluation(
     request: Request,
     body: MagEvalRequest,
-    _: None = Depends(_require_api_key),
+    _: Annotated[None, Depends(_require_api_key)],
 ):
     _skipped = JSONResponse(content={"ok": True, "skipped": True}, status_code=200)
 
@@ -1913,18 +1907,9 @@ async def integration_mag_evaluation(
             return _skipped
 
     record_id = client_evaluation_repository.insert_draft(
-        competencia=parsed["competencia"],
-        nome_extraido=parsed["nome_extraido"],
+        parsed=parsed,
         user_email=user_email,
         match_status=match_status,
-        fornecedor_validado=parsed["fornecedor_validado"],
-        comportamental_nota=parsed["comportamental_nota"],
-        comportamental_comentario=parsed["comportamental_comentario"],
-        tecnica_nota=parsed["tecnica_nota"],
-        tecnica_comentario=parsed["tecnica_comentario"],
-        prazo_nota=parsed["prazo_nota"],
-        prazo_comentario=parsed["prazo_comentario"],
-        comentario_geral=parsed["comentario_geral"],
         raw_email_text=content_plain,
         email_message_id=body.internetMessageId,
         origem="automacao",
