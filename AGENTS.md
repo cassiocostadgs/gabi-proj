@@ -236,7 +236,7 @@ Use the `/commit` skill to execute this flow. WIP commits (without push) do not 
 
 **Deploy steps**: GitHub Actions copies `frontend/dist/` to EC2, pulls `main`, installs Python deps, runs `systemctl restart gabi`, reloads nginx.
 
-**Secrets** (GitHub Actions): `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SID`, `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_TASK_PROJECT`.
+**Secrets** (GitHub Actions): `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SID`, `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_TASK_PROJECT`, `MAG_EVAL_API_KEY`.
 
 ---
 
