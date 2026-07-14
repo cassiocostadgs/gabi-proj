@@ -6,6 +6,7 @@ import { ResultsPage } from './pages/results/ResultsPage'
 import { SubmissionsPage } from './pages/submissions/SubmissionsPage'
 import { SubmissionDetailPage } from './pages/submissions/SubmissionDetailPage'
 import { AdminPage } from './pages/admin/AdminPage'
+import { MyEvaluationsPage } from './pages/my-evaluations/MyEvaluationsPage'
 import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute'
 import { useAuth } from './hooks/useAuth'
 
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="/results" element={<ResultsPage />} />
           <Route path="/submissions" element={<SubmissionsPage />} />
           <Route path="/submissions/:id" element={<SubmissionDetailPage />} />
+          <Route path="/minhas-avaliacoes" element={<MyEvaluationsPage />} />
           <Route element={<AdminRoute />}>
             <Route path="/admin" element={<Navigate to="/admin/task" replace />} />
             <Route path="/admin/:section" element={<AdminPage />} />

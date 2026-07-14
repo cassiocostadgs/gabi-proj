@@ -183,3 +183,59 @@ export interface AppSettings {
   billing_cnpj: string
   [key: string]: string
 }
+
+// ── Client Evaluation ─────────────────────────────────────────────────────────
+
+export type MatchStatus = 'auto' | 'manual' | 'nao_vinculado'
+export type EvaluationStatus = 'rascunho' | 'aprovado' | 'rejeitado'
+export type EvaluationOrigem = 'manual' | 'automacao'
+
+export interface ClientEvaluation {
+  id: number
+  competencia: string
+  nome_extraido: string
+  user_email: string | null
+  match_status: MatchStatus
+  fornecedor_validado: number
+  comportamental_nota: number | null
+  comportamental_comentario: string | null
+  tecnica_nota: number | null
+  tecnica_comentario: string | null
+  prazo_nota: number | null
+  prazo_comentario: string | null
+  comentario_geral: string | null
+  raw_email_text: string
+  email_message_id: string | null
+  origem: EvaluationOrigem
+  status: EvaluationStatus
+  created_by: string
+  created_at: string
+  reviewed_by: string | null
+  reviewed_at: string | null
+  edited_by: string | null
+  edited_at: string | null
+}
+
+export interface ClientEvaluationDraft {
+  user_email?: string | null
+  comportamental_nota?: number | null
+  comportamental_comentario?: string | null
+  tecnica_nota?: number | null
+  tecnica_comentario?: string | null
+  prazo_nota?: number | null
+  prazo_comentario?: string | null
+  comentario_geral?: string | null
+}
+
+export interface ClientEvaluationDashboard {
+  user_email: string
+  nome_extraido: string
+  competencia: string
+  comportamental_nota: number | null
+  tecnica_nota: number | null
+  prazo_nota: number | null
+  comportamental_comentario: string | null
+  tecnica_comentario: string | null
+  prazo_comentario: string | null
+  comentario_geral: string | null
+}

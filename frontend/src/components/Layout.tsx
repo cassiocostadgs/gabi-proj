@@ -15,6 +15,7 @@ import {
   X,
   Eye,
   EyeOff,
+  Star,
 } from 'lucide-react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
@@ -45,6 +46,7 @@ const ADMIN_NAV = [
   { to: '/admin/users', icon: Users, label: 'Usuários' },
   { to: '/admin/team', icon: UserCheck, label: 'Equipe' },
   { to: '/admin/approvals', icon: ClipboardList, label: 'Aprovações' },
+  { to: '/admin/avaliacao-cliente', icon: Star, label: 'Avaliações MAG' },
   { to: '/admin/settings', icon: Settings2, label: 'Configurações' },
 ]
 
@@ -52,6 +54,7 @@ const USER_NAV = [
   { to: '/validate', icon: ClipboardCheck, label: 'Validar' },
   { to: '/task-report', icon: Table2, label: 'Meu Task' },
   { to: '/submissions', icon: History, label: 'Submissões' },
+  { to: '/minhas-avaliacoes', icon: Star, label: 'Minhas Avaliações' },
 ]
 
 function PasswordField({
