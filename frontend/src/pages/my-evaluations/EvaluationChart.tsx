@@ -44,6 +44,27 @@ const statusRailPlugin: Plugin<'line'> = {
   },
 }
 
+const pointLabelsPlugin: Plugin<'line'> = {
+  id: 'pointLabels',
+  afterDatasetsDraw(chart) {
+    const dataset = chart.data.datasets[0]
+    const meta = chart.getDatasetMeta(0)
+    const color = typeof dataset.borderColor === 'string' ? dataset.borderColor : '#e2e8f0'
+    const { ctx } = chart
+    ctx.save()
+    ctx.font = '600 10px system-ui, -apple-system, sans-serif'
+    ctx.fillStyle = color
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'bottom'
+    meta.data.forEach((point, index) => {
+      const value = dataset.data[index] as number | null
+      if (value == null) return
+      ctx.fillText(String(value), point.x, point.y - 6)
+    })
+    ctx.restore()
+  },
+}
+
 type DimensionKey = 'comportamental_nota' | 'tecnica_nota' | 'prazo_nota'
 
 interface DimensionConfig {
@@ -95,7 +116,7 @@ function DimensionChart({
   const options = {
     responsive: true,
     maintainAspectRatio: false,
-    layout: { padding: { left: RAIL_MARGIN } },
+    layout: { padding: { left: RAIL_MARGIN, top: 14, right: 8 } },
     interaction: { mode: 'index' as const, intersect: false },
     plugins: {
       legend: { display: false },
@@ -125,7 +146,7 @@ function DimensionChart({
         {label}
       </p>
       <div style={{ height: showXAxis ? 130 : 110 }}>
-        <Line data={data} options={options} plugins={[statusRailPlugin]} />
+        <Line data={data} options={options} plugins={[statusRailPlugin, pointLabelsPlugin]} />
       </div>
     </div>
   )
