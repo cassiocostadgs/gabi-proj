@@ -34,12 +34,33 @@ def _parse_score(value: str, dimension: str) -> int:
     return score
 
 
-def _next_non_empty(lines: list, start: int) -> tuple:
-    """Return (index, stripped_line) of the first non-empty line at or after start."""
+def _consume_paragraphs(lines: list, start: int, leading: str = "") -> tuple:
+    """Consume lines from start until a section marker or EOF, joined as free text.
+
+    A run of consecutive non-empty lines is one paragraph (its lines joined with a
+    single space, undoing hard-wrap); a blank line starts a new paragraph. Paragraphs
+    are joined with a blank line so multi-paragraph comments survive intact instead of
+    being truncated to their first line. `leading` seeds the first paragraph with text
+    already captured on the label's own line (e.g. "Feedback: ...").
+    Returns (comentario_or_None, next_index).
+    """
+    paragraphs: list = []
+    current: list = [leading] if leading else []
     j = start
-    while j < len(lines) and not lines[j].strip():
+    while j < len(lines):
+        stripped = lines[j].strip()
+        if stripped and _IS_SECTION_RE.match(stripped):
+            break
+        if stripped:
+            current.append(stripped)
+        elif current:
+            paragraphs.append(" ".join(current))
+            current = []
         j += 1
-    return j, (lines[j].strip() if j < len(lines) else "")
+    if current:
+        paragraphs.append(" ".join(current))
+    comentario = "\n\n".join(paragraphs) if paragraphs else None
+    return comentario, j
 
 
 def _extract_competencia(match: re.Match) -> str:
@@ -51,7 +72,6 @@ _SIMPLE_MATCHERS = (
     ("competencia", _COMPETENCIA_RE, _extract_competencia),
     ("nome_extraido", _COLABORADOR_RE, lambda m: m.group(1).strip()),
     ("fornecedor", _FORNECEDOR_RE, lambda m: m.group(1).strip()),
-    ("comentario_geral", _FEEDBACK_RE, lambda m: m.group(1).strip()),
 )
 
 _DIMENSION_MATCHERS = (
@@ -83,15 +103,12 @@ def _match_simple_field(line: str, fields: dict) -> bool:
 def _consume_score_section(
     lines: list, i: int, match: re.Match, dimension: str, has_feedback_label: bool
 ):
-    """Parse a dimension's score, then optionally consume its free-text comment line."""
+    """Parse a dimension's score, then optionally consume its free-text comment block."""
     nota = _parse_score(match.group(1).strip(), dimension)
     i += 1
     comentario = None
     if not has_feedback_label:
-        j, next_line = _next_non_empty(lines, i)
-        if next_line and not _IS_SECTION_RE.match(next_line):
-            comentario = next_line
-            i = j + 1
+        comentario, i = _consume_paragraphs(lines, i)
     return nota, comentario, i
 
 
@@ -107,6 +124,17 @@ def _match_dimension_field(lines: list, i: int, line: str, fields: dict, has_fee
             fields[f"{key}_comentario"] = comentario
             return next_i
     return None
+
+
+def _match_feedback_field(lines: list, i: int, line: str, fields: dict):
+    """If line starts the Feedback: block, consume its (possibly multi-paragraph) text."""
+    match = _FEEDBACK_RE.match(line)
+    if not match:
+        return None
+    leading = match.group(1).strip()
+    comentario, next_i = _consume_paragraphs(lines, i + 1, leading=leading)
+    fields["comentario_geral"] = comentario
+    return next_i
 
 
 def _validate_required_fields(fields: dict) -> None:
@@ -153,6 +181,11 @@ def parse_evaluation(text: str) -> dict:
 
         if _match_simple_field(line, fields):
             i += 1
+            continue
+
+        next_i = _match_feedback_field(lines, i, line, fields)
+        if next_i is not None:
+            i = next_i
             continue
 
         next_i = _match_dimension_field(lines, i, line, fields, has_feedback_label)

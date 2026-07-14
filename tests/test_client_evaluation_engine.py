@@ -74,6 +74,34 @@ Feedback: Desempenho exemplar em todos os critérios.
 OBS: Notas de 1 à 5.
 """
 
+BODY_E = """\
+Competência: 05 / 2026
+Colaborador: Tadeu Henriques Moreira
+Fornecedor: DB1 Global Software
+Total de horas(horas): 168:00
+Total de horas(decimal): 168,00
+
+Avaliação Comportamental: 3
+Tadeu apresenta um comportamento alinhado ao esperado
+para sua senioridade e papel de liderança técnica.
+
+Outro ponto de atenção é reforçar o senso de dono sobre
+os assuntos sob sua responsabilidade.
+
+Em relação à interação com a equipe, observou-se que,
+ao longo do ciclo, as participações nos ritos ocorreram
+predominantemente com a câmera fechada.
+
+Avaliação Técnica: 3
+Entregas consistentes, principalmente na elaboração dos
+desenhos de solução e na condução das definições técnicas.
+
+Avaliação Prazos de entrega: 4
+Cumpre os prazos acordados.
+
+OBS: Notas de 1 à 5.
+"""
+
 
 # ── parse_evaluation ──────────────────────────────────────────────────────────
 
@@ -109,6 +137,36 @@ class TestParseEvaluation:
         assert result["tecnica_nota"] == 5
         assert result["prazo_nota"] == 5
         assert result["comentario_geral"] == "Desempenho exemplar em todos os critérios."
+
+    def test_body_e_multi_paragraph_dimension_comment(self):
+        """Regression: a dimension comment spanning multiple paragraphs (blank-line
+        separated, each itself hard-wrapped) must not be truncated to its first line."""
+        result = engine.parse_evaluation(BODY_E)
+        assert result["comportamental_comentario"] == (
+            "Tadeu apresenta um comportamento alinhado ao esperado "
+            "para sua senioridade e papel de liderança técnica.\n\n"
+            "Outro ponto de atenção é reforçar o senso de dono sobre "
+            "os assuntos sob sua responsabilidade.\n\n"
+            "Em relação à interação com a equipe, observou-se que, "
+            "ao longo do ciclo, as participações nos ritos ocorreram "
+            "predominantemente com a câmera fechada."
+        )
+        assert result["tecnica_comentario"] == (
+            "Entregas consistentes, principalmente na elaboração dos "
+            "desenhos de solução e na condução das definições técnicas."
+        )
+        assert result["prazo_comentario"] == "Cumpre os prazos acordados."
+
+    def test_feedback_block_multi_paragraph(self):
+        """Regression: same truncation bug in the Feedback: block, not just per-dimension."""
+        body = BODY_B.replace(
+            "Feedback: Bom desempenho no geral, com espaço para melhoria técnica.",
+            "Feedback: Bom desempenho no geral.\n\nEspaço para melhoria técnica no próximo ciclo.",
+        )
+        result = engine.parse_evaluation(body)
+        assert result["comentario_geral"] == (
+            "Bom desempenho no geral.\n\nEspaço para melhoria técnica no próximo ciclo."
+        )
 
     def test_competencia_normalization_to_yyyy_mm(self):
         result = engine.parse_evaluation(BODY_A)
