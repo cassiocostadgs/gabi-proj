@@ -1,22 +1,33 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Star, AlertTriangle, X, CheckCircle, XCircle, Lock, BarChart2 } from 'lucide-react'
 import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  LineController,
-  LineElement,
-  PointElement,
-  Tooltip,
-  Legend,
-} from 'chart.js'
-import { Line } from 'react-chartjs-2'
+  Star,
+  AlertTriangle,
+  X,
+  CheckCircle,
+  XCircle,
+  Lock,
+  BarChart2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsRight,
+  ChevronDown,
+} from 'lucide-react'
 import { Spinner } from '../../../components/Spinner'
 import { SelectField } from '../../../components/ui/select'
+import { EvaluationSummary } from '../../../components/evaluation/EvaluationSummary'
+import { EvaluationChart } from '../../../components/evaluation/EvaluationChart'
+import { EvaluationHistory } from '../../../components/evaluation/EvaluationHistory'
 import { clientEvaluationService } from '../../../services/client-evaluation.service'
 import { billingService } from '../../../services/billing.service'
-import { competenciaShort, fmtDatetime } from '../../../lib/format'
+import { competenciaLabel, competenciaShort, fmtDatetime } from '../../../lib/format'
+import { scoreBand, SCORE_BAND_BADGE_CLS } from '../../../lib/evaluationScore'
+import {
+  RANGE_OPTIONS,
+  RANGE_LABEL,
+  filterByRange,
+  type RangeFilter,
+} from '../../../lib/evaluationRange'
 import axios from 'axios'
 import type {
   ClientEvaluation,
@@ -26,66 +37,7 @@ import type {
   TeamMember,
 } from '../../../types'
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  LineController,
-  LineElement,
-  PointElement,
-  Tooltip,
-  Legend
-)
-
 const UNSET_EMAIL = '__null__'
-
-const CHART_OPTIONS = {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: { position: 'top' as const, labels: { color: '#94a3b8' } },
-  },
-  scales: {
-    x: {
-      grid: { color: '#1e293b' },
-      ticks: { color: '#94a3b8' },
-    },
-    y: {
-      min: 1,
-      max: 5,
-      grid: { color: '#1e293b' },
-      ticks: { color: '#94a3b8', stepSize: 1 },
-      title: { display: true, text: 'Nota', color: '#94a3b8' },
-    },
-  },
-}
-
-function formatDashComment(rec: ClientEvaluationDashboard): string {
-  if (rec.comentario_geral) return rec.comentario_geral
-  return [rec.comportamental_comentario, rec.tecnica_comentario, rec.prazo_comentario]
-    .filter(Boolean)
-    .join(' / ')
-}
-
-type DimensionField = 'comportamental_nota' | 'tecnica_nota' | 'prazo_nota'
-
-function averageForCompetencia(
-  dashboardData: ClientEvaluationDashboard[],
-  competencia: string,
-  field: DimensionField
-): number | null {
-  const vals = dashboardData
-    .filter((r) => r.competencia === competencia && r[field] != null)
-    .map((r) => r[field] as number)
-  return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null
-}
-
-function averageByField(
-  dashboardData: ClientEvaluationDashboard[],
-  competencias: string[],
-  field: DimensionField
-): (number | null)[] {
-  return competencias.map((comp) => averageForCompetencia(dashboardData, comp, field))
-}
 
 const STATUS_LABEL: Record<EvaluationStatus, string> = {
   rascunho: 'Rascunho',
@@ -99,6 +51,13 @@ const STATUS_CLS: Record<EvaluationStatus, string> = {
   rejeitado: 'bg-red-500/10 border-red-500/30 text-red-400',
 }
 
+const STATUS_FILTER_OPTIONS: Array<{ value: '' | EvaluationStatus; label: string }> = [
+  { value: '', label: 'Todos' },
+  { value: 'rascunho', label: 'Rascunho' },
+  { value: 'aprovado', label: 'Aprovado' },
+  { value: 'rejeitado', label: 'Rejeitado' },
+]
+
 function emailToDisplayName(email: string): string {
   const prefix = email.split('@')[0] ?? email
   return prefix
@@ -109,9 +68,108 @@ function emailToDisplayName(email: string): string {
 
 function ScorePill({ score }: Readonly<{ score: number }>) {
   return (
-    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-700 text-slate-200 text-[0.65rem] font-bold">
+    <span
+      className={`inline-flex items-center justify-center w-6 h-6 rounded-full border text-[0.65rem] font-bold ${SCORE_BAND_BADGE_CLS[scoreBand(score)]}`}
+    >
       {score}
     </span>
+  )
+}
+
+interface ReviewDrawerFooterProps {
+  isRejeitado: boolean
+  isAprovado: boolean
+  canApprove: boolean
+  rejectConfirmOpen: boolean
+  onRequestReject: () => void
+  onCancelReject: () => void
+  onConfirmReject: () => void
+  isRejectPending: boolean
+  onSave: () => void
+  isSavePending: boolean
+  onApprove: () => void
+  isApprovePending: boolean
+}
+
+function ReviewDrawerFooter({
+  isRejeitado,
+  isAprovado,
+  canApprove,
+  rejectConfirmOpen,
+  onRequestReject,
+  onCancelReject,
+  onConfirmReject,
+  isRejectPending,
+  onSave,
+  isSavePending,
+  onApprove,
+  isApprovePending,
+}: Readonly<ReviewDrawerFooterProps>) {
+  if (isRejeitado) {
+    return (
+      <p className="text-xs text-slate-500">Registro rejeitado — sem novas ações disponíveis.</p>
+    )
+  }
+
+  if (rejectConfirmOpen) {
+    return (
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-xs text-amber-300">Tem certeza? Esta ação é irreversível.</p>
+        <div className="flex gap-2">
+          <button
+            onClick={onCancelReject}
+            className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirmReject}
+            disabled={isRejectPending}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white transition-colors"
+          >
+            {isRejectPending ? <Spinner size="sm" /> : <XCircle size={13} />}
+            Confirmar rejeição
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <button
+        onClick={onRequestReject}
+        disabled={isAprovado}
+        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        <XCircle size={13} /> Rejeitar
+      </button>
+      <div className="flex gap-2">
+        <button
+          onClick={onSave}
+          disabled={isAprovado || isSavePending}
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          {isSavePending ? <Spinner size="sm" /> : null}
+          Salvar
+        </button>
+        <div className="relative group">
+          <button
+            onClick={onApprove}
+            disabled={isAprovado || !canApprove || isApprovePending}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-700 hover:bg-emerald-600 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors"
+          >
+            {isApprovePending ? <Spinner size="sm" /> : <CheckCircle size={13} />}
+            Aprovar
+          </button>
+          {!canApprove && !isAprovado && (
+            <div className="absolute bottom-full right-0 mb-2 px-2 py-1 bg-slate-700 text-slate-200 text-[0.65rem] rounded whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+              Vincule o profissional antes de aprovar
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -216,6 +274,8 @@ function ReviewDrawer({
   })
 
   const isAprovado = evaluation?.status === 'aprovado'
+  const isRejeitado = evaluation?.status === 'rejeitado'
+  const isLocked = isAprovado || isRejeitado
   const canApprove = draftUserEmail != null
   const showPerDimensionComments = draftComentarioGeral == null
 
@@ -281,6 +341,21 @@ function ReviewDrawer({
                   </div>
                 )}
 
+                {isRejeitado && (
+                  <div className="flex items-start gap-2.5 bg-red-950/50 border border-red-800/50 rounded-xl px-4 py-3">
+                    <XCircle size={13} className="text-red-500 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-xs font-semibold text-red-300">
+                        Registro rejeitado — somente leitura
+                      </p>
+                      <p className="text-[0.7rem] text-red-700 mt-0.5">
+                        Rejeitado em {fmtDatetime(evaluation.reviewed_at ?? '')} por{' '}
+                        {evaluation.reviewed_by ?? '—'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <label
                     htmlFor="ce-user-email"
@@ -296,7 +371,7 @@ function ReviewDrawer({
                     value={draftUserEmail ?? UNSET_EMAIL}
                     onValueChange={(val) => setDraftUserEmail(val === UNSET_EMAIL ? null : val)}
                     options={memberOptions}
-                    disabled={isAprovado}
+                    disabled={isLocked}
                   />
                 </div>
 
@@ -323,7 +398,7 @@ function ReviewDrawer({
                     onChange={(e) =>
                       setDraftComportamentalNota(e.target.value ? Number(e.target.value) : null)
                     }
-                    disabled={isAprovado}
+                    disabled={isLocked}
                     className="w-24 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500 transition-colors disabled:opacity-50"
                   />
                 </div>
@@ -340,7 +415,7 @@ function ReviewDrawer({
                       id="ce-comp-comentario"
                       value={draftComportamentalComentario ?? ''}
                       onChange={(e) => setDraftComportamentalComentario(e.target.value || null)}
-                      disabled={isAprovado}
+                      disabled={isLocked}
                       rows={2}
                       className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500 transition-colors resize-y disabled:opacity-50"
                     />
@@ -363,7 +438,7 @@ function ReviewDrawer({
                     onChange={(e) =>
                       setDraftTecnicaNota(e.target.value ? Number(e.target.value) : null)
                     }
-                    disabled={isAprovado}
+                    disabled={isLocked}
                     className="w-24 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500 transition-colors disabled:opacity-50"
                   />
                 </div>
@@ -380,7 +455,7 @@ function ReviewDrawer({
                       id="ce-tec-comentario"
                       value={draftTecnicaComentario ?? ''}
                       onChange={(e) => setDraftTecnicaComentario(e.target.value || null)}
-                      disabled={isAprovado}
+                      disabled={isLocked}
                       rows={2}
                       className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500 transition-colors resize-y disabled:opacity-50"
                     />
@@ -403,7 +478,7 @@ function ReviewDrawer({
                     onChange={(e) =>
                       setDraftPrazoNota(e.target.value ? Number(e.target.value) : null)
                     }
-                    disabled={isAprovado}
+                    disabled={isLocked}
                     className="w-24 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500 transition-colors disabled:opacity-50"
                   />
                 </div>
@@ -420,7 +495,7 @@ function ReviewDrawer({
                       id="ce-prazo-comentario"
                       value={draftPrazoComentario ?? ''}
                       onChange={(e) => setDraftPrazoComentario(e.target.value || null)}
-                      disabled={isAprovado}
+                      disabled={isLocked}
                       rows={2}
                       className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500 transition-colors resize-y disabled:opacity-50"
                     />
@@ -439,7 +514,7 @@ function ReviewDrawer({
                       id="ce-comentario-geral"
                       value={draftComentarioGeral ?? ''}
                       onChange={(e) => setDraftComentarioGeral(e.target.value || null)}
-                      disabled={isAprovado}
+                      disabled={isLocked}
                       rows={3}
                       className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500 transition-colors resize-y disabled:opacity-50"
                     />
@@ -464,66 +539,20 @@ function ReviewDrawer({
 
         {evaluation && (
           <div className="border-t border-slate-700 px-5 py-4 shrink-0">
-            {rejectConfirmOpen ? (
-              <div className="flex items-center justify-between gap-4">
-                <p className="text-xs text-amber-300">Tem certeza? Esta ação é irreversível.</p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setRejectConfirmOpen(false)}
-                    className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={() => rejectMutation.mutate()}
-                    disabled={rejectMutation.isPending}
-                    className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white transition-colors"
-                  >
-                    {rejectMutation.isPending ? <Spinner size="sm" /> : <XCircle size={13} />}
-                    Confirmar rejeição
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between gap-2">
-                <button
-                  onClick={() => setRejectConfirmOpen(true)}
-                  disabled={isAprovado}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <XCircle size={13} /> Rejeitar
-                </button>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => saveMutation.mutate()}
-                    disabled={isAprovado || saveMutation.isPending}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    {saveMutation.isPending ? <Spinner size="sm" /> : null}
-                    Salvar
-                  </button>
-                  <div className="relative group">
-                    <button
-                      onClick={() => approveMutation.mutate()}
-                      disabled={isAprovado || !canApprove || approveMutation.isPending}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-700 hover:bg-emerald-600 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors"
-                    >
-                      {approveMutation.isPending ? (
-                        <Spinner size="sm" />
-                      ) : (
-                        <CheckCircle size={13} />
-                      )}
-                      Aprovar
-                    </button>
-                    {!canApprove && !isAprovado && (
-                      <div className="absolute bottom-full right-0 mb-2 px-2 py-1 bg-slate-700 text-slate-200 text-[0.65rem] rounded whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
-                        Vincule o profissional antes de aprovar
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+            <ReviewDrawerFooter
+              isRejeitado={isRejeitado}
+              isAprovado={isAprovado}
+              canApprove={canApprove}
+              rejectConfirmOpen={rejectConfirmOpen}
+              onRequestReject={() => setRejectConfirmOpen(true)}
+              onCancelReject={() => setRejectConfirmOpen(false)}
+              onConfirmReject={() => rejectMutation.mutate()}
+              isRejectPending={rejectMutation.isPending}
+              onSave={() => saveMutation.mutate()}
+              isSavePending={saveMutation.isPending}
+              onApprove={() => approveMutation.mutate()}
+              isApprovePending={approveMutation.isPending}
+            />
           </div>
         )}
       </div>
@@ -531,103 +560,136 @@ function ReviewDrawer({
   )
 }
 
-export function AvaliacaoClienteSection() {
+interface RosterPerson {
+  email: string
+  name: string
+  history: ClientEvaluationDashboard[] // ascending by competência
+}
+
+interface RosterCardProps {
+  person: RosterPerson
+  range: RangeFilter
+  defaultOpen: boolean
+}
+
+function RosterCard({ person, range, defaultOpen }: Readonly<RosterCardProps>) {
+  const historyAsc = person.history
+  const latest = historyAsc[historyAsc.length - 1]
+  const previous = historyAsc[historyAsc.length - 2] ?? null
+  const periodEvaluations = filterByRange(historyAsc, range)
+  const historyDesc = [...historyAsc].sort((a, b) => b.competencia.localeCompare(a.competencia))
+
+  return (
+    <details
+      open={defaultOpen}
+      className="group bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden"
+    >
+      <summary className="px-5 py-4 cursor-pointer flex items-center gap-3 [&::-webkit-details-marker]:hidden">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-slate-100 truncate">{person.name}</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Última avaliação: {competenciaShort(latest.competencia)}
+          </p>
+        </div>
+        <div className="flex gap-1.5 shrink-0">
+          {latest.comportamental_nota != null && (
+            <span
+              className={`px-2 py-0.5 rounded-full border text-[0.65rem] font-bold ${SCORE_BAND_BADGE_CLS[scoreBand(latest.comportamental_nota)]}`}
+            >
+              C {latest.comportamental_nota}
+            </span>
+          )}
+          {latest.tecnica_nota != null && (
+            <span
+              className={`px-2 py-0.5 rounded-full border text-[0.65rem] font-bold ${SCORE_BAND_BADGE_CLS[scoreBand(latest.tecnica_nota)]}`}
+            >
+              T {latest.tecnica_nota}
+            </span>
+          )}
+          {latest.prazo_nota != null && (
+            <span
+              className={`px-2 py-0.5 rounded-full border text-[0.65rem] font-bold ${SCORE_BAND_BADGE_CLS[scoreBand(latest.prazo_nota)]}`}
+            >
+              P {latest.prazo_nota}
+            </span>
+          )}
+        </div>
+        <ChevronDown
+          size={15}
+          className="text-slate-500 shrink-0 transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <div className="px-5 pb-5 pt-1 border-t border-slate-700 space-y-5">
+        <EvaluationSummary
+          latest={latest}
+          previous={previous}
+          periodEvaluations={periodEvaluations}
+          rangeLabel={RANGE_LABEL[range]}
+        />
+        <div className="bg-slate-900/40 border border-slate-700/60 rounded-xl px-4 py-4">
+          <EvaluationChart evaluations={periodEvaluations} />
+          <p className="text-[11px] text-slate-500 mt-4 pt-3 border-t border-slate-700">
+            Escala de 1 a 5 · <span className="text-emerald-400 font-semibold">verde</span> = 4–5
+            (dentro/acima do esperado) ·{' '}
+            <span className="text-amber-400 font-semibold">amarelo</span> = 3 (em evolução) ·{' '}
+            <span className="text-red-400 font-semibold">vermelho</span> = 1–2 (requer atenção).
+          </p>
+        </div>
+        <EvaluationHistory isLoading={false} evaluations={historyDesc} />
+      </div>
+    </details>
+  )
+}
+
+interface IngestReviewTabProps {
+  onOpenEvaluation: (evaluation: ClientEvaluation) => void
+}
+
+function IngestReviewTab({ onOpenEvaluation }: Readonly<IngestReviewTabProps>) {
   const qc = useQueryClient()
-  const [activeTab, setActiveTab] = useState<'ingest' | 'dashboard'>('ingest')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'' | EvaluationStatus>('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedComp, setSelectedComp] = useState<string | null>(null)
+  const [ingestOpen, setIngestOpen] = useState(false)
   const [emailBody, setEmailBody] = useState('')
   const [ingestErrorType, setIngestErrorType] = useState<'parse' | 'duplicate' | 'override' | null>(
     null
   )
   const [ingestErrorMessage, setIngestErrorMessage] = useState('')
-  const [openEvaluation, setOpenEvaluation] = useState<ClientEvaluation | null>(null)
-
-  // Dashboard filter state
-  const [dashFilterEmail, setDashFilterEmail] = useState('')
-  const [dashFilterFrom, setDashFilterFrom] = useState('')
-  const [dashFilterTo, setDashFilterTo] = useState('')
-  const [appliedDashFilters, setAppliedDashFilters] = useState({ email: '', from: '', to: '' })
 
   const { data: evaluations = [], isLoading } = useQuery({
-    queryKey: ['client-evaluations', statusFilter],
-    queryFn: () => clientEvaluationService.listEvaluations(statusFilter || undefined),
+    queryKey: ['client-evaluations'],
+    queryFn: () => clientEvaluationService.listEvaluations(),
   })
 
-  const { data: allTeamMembers = [] } = useQuery({
-    queryKey: ['admin-team'],
-    queryFn: billingService.listTeam,
-  })
-
-  const activeTeamMembers = allTeamMembers
-    .filter((m) => m.is_active)
-    .sort((a, b) =>
-      emailToDisplayName(a.user_email).localeCompare(emailToDisplayName(b.user_email))
-    )
-
-  const { data: dashboardData = [], isLoading: dashLoading } = useQuery({
-    queryKey: ['client-evaluations-dashboard', appliedDashFilters],
-    queryFn: () =>
-      clientEvaluationService.getDashboard({
-        userEmail: appliedDashFilters.email || undefined,
-        competenciaFrom: appliedDashFilters.from || undefined,
-        competenciaTo: appliedDashFilters.to || undefined,
-      }),
-    enabled: activeTab === 'dashboard',
-    staleTime: 30_000,
-  })
-
-  function handleApplyDashboard() {
-    setAppliedDashFilters({ email: dashFilterEmail, from: dashFilterFrom, to: dashFilterTo })
-  }
-
-  const competenciasSorted = useMemo(
-    () => [...new Set(dashboardData.map((r) => r.competencia))].sort((a, b) => a.localeCompare(b)),
-    [dashboardData]
+  const competencias = useMemo(
+    () => [...new Set(evaluations.map((e) => e.competencia))].sort((a, b) => a.localeCompare(b)),
+    [evaluations]
   )
 
-  const chartData = useMemo(() => {
-    const labels = competenciasSorted.map((c) => competenciaShort(c))
-    return {
-      labels,
-      datasets: [
-        {
-          label: 'Comportamental',
-          data: averageByField(dashboardData, competenciasSorted, 'comportamental_nota'),
-          borderColor: 'rgba(59,130,246,0.9)',
-          backgroundColor: 'rgba(59,130,246,0.15)',
-          pointBackgroundColor: 'rgba(59,130,246,0.9)',
-          tension: 0.3,
-          spanGaps: true,
-        },
-        {
-          label: 'Técnica',
-          data: averageByField(dashboardData, competenciasSorted, 'tecnica_nota'),
-          borderColor: 'rgba(52,211,153,0.9)',
-          backgroundColor: 'rgba(52,211,153,0.15)',
-          pointBackgroundColor: 'rgba(52,211,153,0.9)',
-          tension: 0.3,
-          spanGaps: true,
-        },
-        {
-          label: 'Prazo',
-          data: averageByField(dashboardData, competenciasSorted, 'prazo_nota'),
-          borderColor: 'rgba(251,146,60,0.9)',
-          backgroundColor: 'rgba(251,146,60,0.15)',
-          pointBackgroundColor: 'rgba(251,146,60,0.9)',
-          tension: 0.3,
-          spanGaps: true,
-        },
-      ],
+  useEffect(() => {
+    if (competencias.length === 0) return
+    if (selectedComp === null || !competencias.includes(selectedComp)) {
+      setSelectedComp(competencias[competencias.length - 1])
     }
-  }, [dashboardData, competenciasSorted])
+  }, [competencias, selectedComp])
 
-  const dashMemberOptions = [
-    { value: '', label: 'Todos' },
-    ...activeTeamMembers.map((m) => ({
-      value: m.user_email,
-      label: emailToDisplayName(m.user_email),
-    })),
-  ]
+  const compIdx = selectedComp ? competencias.indexOf(selectedComp) : -1
+
+  const compItems = useMemo(
+    () => evaluations.filter((e) => e.competencia === selectedComp),
+    [evaluations, selectedComp]
+  )
+
+  const reviewedCount = compItems.filter((e) => e.status !== 'rascunho').length
+  const totalCount = compItems.length
+
+  const filteredItems = compItems.filter((e) => {
+    if (statusFilter && e.status !== statusFilter) return false
+    if (searchTerm && !e.nome_extraido.toLowerCase().includes(searchTerm.toLowerCase()))
+      return false
+    return true
+  })
 
   const ingestMutation = useMutation({
     mutationFn: ({ body, confirmOverride }: { body: string; confirmOverride?: boolean }) =>
@@ -664,6 +726,331 @@ export function AvaliacaoClienteSection() {
   }
 
   return (
+    <>
+      {competencias.length > 0 && (
+        <div className="sticky top-[57px] sm:top-0 z-10 bg-slate-900 pb-4 mb-4 border-b border-slate-800">
+          <div className="flex items-center gap-3 mb-2">
+            <button
+              onClick={() => setSelectedComp(competencias[compIdx - 1] ?? null)}
+              disabled={compIdx <= 0}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-25"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <div className="flex-1 text-center">
+              <p className="text-sm font-semibold text-slate-200">
+                {selectedComp ? competenciaLabel(selectedComp) : '—'}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {totalCount} avaliaç{totalCount === 1 ? 'ão' : 'ões'} recebida
+                {totalCount === 1 ? '' : 's'}
+              </p>
+            </div>
+            <button
+              onClick={() => setSelectedComp(competencias[compIdx + 1] ?? null)}
+              disabled={compIdx >= competencias.length - 1}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-25"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+          <div className="flex gap-1 justify-center mb-3">
+            {competencias.map((c) => (
+              <button
+                key={c}
+                onClick={() => setSelectedComp(c)}
+                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors border ${
+                  selectedComp === c
+                    ? 'bg-blue-700/20 text-blue-300 border-blue-700/40'
+                    : 'text-slate-600 border-transparent hover:text-slate-300 hover:border-slate-700'
+                }`}
+              >
+                {competenciaShort(c)}
+              </button>
+            ))}
+          </div>
+          <div className="px-1">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[0.65rem] font-semibold text-slate-500 uppercase tracking-wide">
+                {reviewedCount} de {totalCount} revisadas
+              </span>
+              <span className="text-[0.65rem] text-slate-500">
+                {totalCount > 0 ? Math.round((reviewedCount / totalCount) * 100) : 0}%
+              </span>
+            </div>
+            <div className="w-full bg-slate-700/60 rounded-full h-1">
+              <div
+                className={`h-1 rounded-full transition-all ${
+                  totalCount > 0 && reviewedCount === totalCount ? 'bg-emerald-500' : 'bg-blue-500'
+                }`}
+                style={{
+                  width: totalCount > 0 ? `${(reviewedCount / totalCount) * 100}%` : '0%',
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+      {competencias.length === 0 && !isLoading && (
+        <p className="text-sm text-slate-500 text-center py-8">Nenhuma avaliação recebida ainda.</p>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setIngestOpen((o) => !o)}
+        className="inline-flex items-center gap-1.5 mb-4 px-3.5 py-2 rounded-lg border border-slate-700 bg-slate-800/50 hover:bg-slate-700 text-slate-300 hover:text-slate-100 text-xs font-semibold transition-colors"
+      >
+        {ingestOpen ? '− Recolher lançamento manual' : '+ Lançamento manual'}
+      </button>
+
+      {ingestOpen && (
+        <div className="mb-6 max-w-3xl">
+          <textarea
+            value={emailBody}
+            onChange={(e) => {
+              setEmailBody(e.target.value)
+              setIngestErrorType(null)
+            }}
+            rows={10}
+            placeholder="Cole aqui o corpo do e-mail de notificação da MAG..."
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500 transition-colors resize-y font-mono"
+          />
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={handleIngest}
+              disabled={!emailBody.trim() || ingestMutation.isPending}
+              className="px-4 py-2 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition-colors flex items-center gap-2"
+            >
+              {ingestMutation.isPending && <Spinner size="sm" />}
+              Processar
+            </button>
+          </div>
+
+          {ingestErrorType === 'parse' && (
+            <div className="mt-3 bg-red-950/60 border border-red-700/50 rounded-xl px-4 py-3 text-xs text-red-300">
+              <p className="font-semibold mb-1">Erro de parse</p>
+              <p>{ingestErrorMessage}</p>
+              <p className="text-red-500 mt-1">
+                Texto original não foi salvo — corrija o e-mail e tente novamente.
+              </p>
+            </div>
+          )}
+
+          {ingestErrorType === 'duplicate' && (
+            <div className="mt-3 bg-amber-950/60 border border-amber-700/50 rounded-xl px-4 py-3 text-xs text-amber-300">
+              <p className="font-semibold mb-1">Registro duplicado</p>
+              <p>{ingestErrorMessage}</p>
+            </div>
+          )}
+
+          {ingestErrorType === 'override' && (
+            <div className="mt-3 bg-amber-950/60 border border-amber-700/50 rounded-xl px-4 py-3 text-xs text-amber-300">
+              <p className="font-semibold mb-1">Registro duplicado — já aprovado</p>
+              <p className="mb-2">{ingestErrorMessage}</p>
+              <button
+                type="button"
+                onClick={handleOverrideConfirm}
+                disabled={ingestMutation.isPending}
+                className="px-3 py-1.5 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-colors"
+              >
+                Criar novo rascunho mesmo assim
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <div className="flex gap-1 bg-slate-800/50 rounded-lg p-1">
+          {STATUS_FILTER_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setStatusFilter(opt.value)}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                statusFilter === opt.value
+                  ? 'bg-slate-700 text-slate-100'
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Buscar profissional..."
+          className="w-56 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500 transition-colors"
+        />
+      </div>
+
+      {isLoading && (
+        <div className="space-y-2">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-14 bg-slate-800 rounded-xl animate-pulse" />
+          ))}
+        </div>
+      )}
+      {!isLoading && evaluations.length === 0 && (
+        <p className="text-sm text-slate-500 text-center py-8">
+          Nenhuma avaliação processada ainda. Use "Lançamento manual" para colar um e-mail.
+        </p>
+      )}
+      {!isLoading && evaluations.length > 0 && filteredItems.length === 0 && (
+        <p className="text-sm text-slate-500 text-center py-8">
+          Nenhuma avaliação encontrada para este filtro.
+        </p>
+      )}
+      {!isLoading && filteredItems.length > 0 && (
+        <div className="space-y-2">
+          {filteredItems.map((ev) => (
+            <button
+              key={ev.id}
+              type="button"
+              onClick={() => onOpenEvaluation(ev)}
+              className={`w-full text-left bg-slate-800/60 border border-slate-700 hover:border-slate-600 rounded-xl px-5 py-4 text-xs transition-colors group ${
+                ev.status === 'rejeitado' ? 'opacity-60 hover:opacity-80' : ''
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  {ev.match_status === 'nao_vinculado' ? (
+                    <p className="inline-flex items-center gap-1.5 text-amber-400 font-bold">
+                      <AlertTriangle size={11} /> Não vinculado
+                    </p>
+                  ) : (
+                    <p className="font-semibold text-slate-200 truncate">{ev.nome_extraido}</p>
+                  )}
+                  <p className="text-slate-500 mt-0.5 truncate">
+                    {fmtDatetime(ev.created_at)} ·{' '}
+                    {ev.origem === 'automacao' ? 'Automação' : 'Manual'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex gap-1.5">
+                    {ev.comportamental_nota != null && <ScorePill score={ev.comportamental_nota} />}
+                    {ev.tecnica_nota != null && <ScorePill score={ev.tecnica_nota} />}
+                    {ev.prazo_nota != null && <ScorePill score={ev.prazo_nota} />}
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded-full border text-[0.65rem] font-bold ${STATUS_CLS[ev.status]}`}
+                  >
+                    {STATUS_LABEL[ev.status]}
+                  </span>
+                  <ChevronsRight
+                    size={14}
+                    className="text-slate-600 group-hover:text-slate-400 transition-colors"
+                  />
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+function DashboardTab() {
+  const [dashSearch, setDashSearch] = useState('')
+  const [dashRange, setDashRange] = useState<RangeFilter>('12')
+
+  const { data: dashboardData = [], isLoading: dashLoading } = useQuery({
+    queryKey: ['client-evaluations-dashboard'],
+    queryFn: () => clientEvaluationService.getDashboard({}),
+    staleTime: 30_000,
+  })
+
+  const roster = useMemo<RosterPerson[]>(() => {
+    const byEmail = new Map<string, ClientEvaluationDashboard[]>()
+    dashboardData.forEach((rec) => {
+      const list = byEmail.get(rec.user_email) ?? []
+      list.push(rec)
+      byEmail.set(rec.user_email, list)
+    })
+    return [...byEmail.entries()]
+      .map(([email, records]) => {
+        const sorted = [...records].sort((a, b) => a.competencia.localeCompare(b.competencia))
+        return { email, name: sorted[sorted.length - 1].nome_extraido, history: sorted }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [dashboardData])
+
+  const filteredRoster = useMemo(
+    () =>
+      roster.filter((p) => !dashSearch || p.name.toLowerCase().includes(dashSearch.toLowerCase())),
+    [roster, dashSearch]
+  )
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <input
+          type="text"
+          value={dashSearch}
+          onChange={(e) => setDashSearch(e.target.value)}
+          placeholder="Buscar profissional..."
+          className="w-56 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500 transition-colors"
+        />
+        <div className="flex gap-1 bg-slate-800/50 border border-slate-700 rounded-lg p-1">
+          {RANGE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setDashRange(opt.value)}
+              className={`text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors ${
+                dashRange === opt.value
+                  ? 'bg-slate-700 text-slate-100'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {dashLoading && (
+        <div className="flex items-center justify-center py-20">
+          <Spinner />
+        </div>
+      )}
+      {!dashLoading && roster.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 gap-2">
+          <BarChart2 size={32} className="text-slate-700" />
+          <p className="text-sm text-slate-500">Nenhuma avaliação aprovada disponível ainda.</p>
+        </div>
+      )}
+      {!dashLoading && roster.length > 0 && (
+        <div className="space-y-2">
+          {filteredRoster.length === 0 && (
+            <p className="text-sm text-slate-500 text-center py-8">
+              Nenhum profissional encontrado.
+            </p>
+          )}
+          {filteredRoster.map((person, index) => (
+            <RosterCard
+              key={person.email}
+              person={person}
+              range={dashRange}
+              defaultOpen={index === 0}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function AvaliacaoClienteSection() {
+  const qc = useQueryClient()
+  const [activeTab, setActiveTab] = useState<'ingest' | 'dashboard'>('ingest')
+  const [openEvaluation, setOpenEvaluation] = useState<ClientEvaluation | null>(null)
+
+  return (
     <section className="pb-20">
       <div className="flex items-center gap-2 mb-4">
         <Star size={16} className="text-slate-400" />
@@ -697,308 +1084,8 @@ export function AvaliacaoClienteSection() {
         </button>
       </div>
 
-      {activeTab === 'ingest' && (
-        <>
-          <div className="mb-6 max-w-3xl">
-            <textarea
-              value={emailBody}
-              onChange={(e) => {
-                setEmailBody(e.target.value)
-                setIngestErrorType(null)
-              }}
-              rows={10}
-              placeholder="Cole aqui o corpo do e-mail de notificação da MAG..."
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500 transition-colors resize-y font-mono"
-            />
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={handleIngest}
-                disabled={!emailBody.trim() || ingestMutation.isPending}
-                className="px-4 py-2 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition-colors flex items-center gap-2"
-              >
-                {ingestMutation.isPending && <Spinner size="sm" />}
-                Processar
-              </button>
-            </div>
-
-            {ingestErrorType === 'parse' && (
-              <div className="mt-3 bg-red-950/60 border border-red-700/50 rounded-xl px-4 py-3 text-xs text-red-300">
-                <p className="font-semibold mb-1">Erro de parse</p>
-                <p>{ingestErrorMessage}</p>
-                <p className="text-red-500 mt-1">
-                  Texto original não foi salvo — corrija o e-mail e tente novamente.
-                </p>
-              </div>
-            )}
-
-            {ingestErrorType === 'duplicate' && (
-              <div className="mt-3 bg-amber-950/60 border border-amber-700/50 rounded-xl px-4 py-3 text-xs text-amber-300">
-                <p className="font-semibold mb-1">Registro duplicado</p>
-                <p>{ingestErrorMessage}</p>
-              </div>
-            )}
-
-            {ingestErrorType === 'override' && (
-              <div className="mt-3 bg-amber-950/60 border border-amber-700/50 rounded-xl px-4 py-3 text-xs text-amber-300">
-                <p className="font-semibold mb-1">Registro duplicado — já aprovado</p>
-                <p className="mb-2">{ingestErrorMessage}</p>
-                <button
-                  type="button"
-                  onClick={handleOverrideConfirm}
-                  disabled={ingestMutation.isPending}
-                  className="px-3 py-1.5 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-colors"
-                >
-                  Criar novo rascunho mesmo assim
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="mb-3">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500 transition-colors"
-            >
-              <option value="">Todos</option>
-              <option value="rascunho">Rascunho</option>
-              <option value="aprovado">Aprovado</option>
-              <option value="rejeitado">Rejeitado</option>
-            </select>
-          </div>
-
-          {isLoading && (
-            <div className="space-y-2">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-10 bg-slate-800 rounded-xl animate-pulse" />
-              ))}
-            </div>
-          )}
-          {!isLoading && evaluations.length === 0 && (
-            <p className="text-sm text-slate-500 text-center py-8">
-              Nenhuma avaliação processada ainda. Cole um e-mail acima para começar.
-            </p>
-          )}
-          {!isLoading && evaluations.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left border-b border-slate-700">
-                    {[
-                      'Status',
-                      'Profissional',
-                      'Competência',
-                      'Comp.',
-                      'Técn.',
-                      'Prazo',
-                      'Ações',
-                    ].map((col) => (
-                      <th
-                        key={col}
-                        className="pb-2 pr-4 last:pr-0 font-semibold text-slate-500 uppercase tracking-wide"
-                      >
-                        {col}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {evaluations.map((ev) => (
-                    <tr key={ev.id} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="py-3 pr-4">
-                        <span
-                          className={`px-2 py-0.5 rounded-full border text-[0.65rem] font-bold ${STATUS_CLS[ev.status]}`}
-                        >
-                          {STATUS_LABEL[ev.status]}
-                        </span>
-                      </td>
-                      <td className="py-3 pr-4 max-w-[160px]">
-                        {ev.match_status === 'nao_vinculado' ? (
-                          <span className="inline-flex items-center gap-1 text-amber-400">
-                            <AlertTriangle size={11} />
-                            <span className="text-[0.65rem] font-bold">Não vinculado</span>
-                          </span>
-                        ) : (
-                          <span className="text-slate-300 truncate block">{ev.nome_extraido}</span>
-                        )}
-                      </td>
-                      <td className="py-3 pr-4 text-slate-400">
-                        {competenciaShort(ev.competencia)}
-                      </td>
-                      <td className="py-3 pr-4">
-                        {ev.comportamental_nota != null && (
-                          <ScorePill score={ev.comportamental_nota} />
-                        )}
-                      </td>
-                      <td className="py-3 pr-4">
-                        {ev.tecnica_nota != null && <ScorePill score={ev.tecnica_nota} />}
-                      </td>
-                      <td className="py-3 pr-4">
-                        {ev.prazo_nota != null && <ScorePill score={ev.prazo_nota} />}
-                      </td>
-                      <td className="py-3">
-                        {ev.status !== 'rejeitado' && (
-                          <button
-                            type="button"
-                            onClick={() => setOpenEvaluation(ev)}
-                            className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium transition-colors"
-                          >
-                            Revisar
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-
-      {activeTab === 'dashboard' && (
-        <div>
-          {/* Filter bar */}
-          <div className="flex flex-wrap items-end gap-3 mb-6">
-            <div>
-              <label
-                htmlFor="dash-filter-email"
-                className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1"
-              >
-                Profissional
-              </label>
-              <SelectField
-                id="dash-filter-email"
-                value={dashFilterEmail}
-                onValueChange={setDashFilterEmail}
-                options={dashMemberOptions}
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="dash-filter-from"
-                className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1"
-              >
-                Competência de
-              </label>
-              <input
-                id="dash-filter-from"
-                type="text"
-                placeholder="YYYY-MM"
-                value={dashFilterFrom}
-                onChange={(e) => setDashFilterFrom(e.target.value)}
-                className="w-32 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500 transition-colors"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="dash-filter-to"
-                className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1"
-              >
-                Competência até
-              </label>
-              <input
-                id="dash-filter-to"
-                type="text"
-                placeholder="YYYY-MM"
-                value={dashFilterTo}
-                onChange={(e) => setDashFilterTo(e.target.value)}
-                className="w-32 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500 transition-colors"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={handleApplyDashboard}
-              className="px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white font-semibold rounded-lg text-sm transition-colors"
-            >
-              Aplicar
-            </button>
-          </div>
-
-          {/* Chart and table */}
-          {dashLoading && (
-            <div className="flex items-center justify-center py-20">
-              <Spinner />
-            </div>
-          )}
-          {!dashLoading && dashboardData.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20 gap-2">
-              <BarChart2 size={32} className="text-slate-700" />
-              <p className="text-sm text-slate-500">
-                Nenhum dado aprovado disponível para os filtros selecionados.
-              </p>
-            </div>
-          )}
-          {!dashLoading && dashboardData.length > 0 && (
-            <>
-              <div className="h-[300px] mb-8 bg-slate-800/30 rounded-xl p-4">
-                <Line data={chartData} options={CHART_OPTIONS} />
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-left border-b border-slate-700">
-                      {[
-                        'Profissional',
-                        'Competência',
-                        'Comp.',
-                        'Técnica',
-                        'Prazo',
-                        'Comentário',
-                      ].map((col) => (
-                        <th
-                          key={col}
-                          className="pb-2 pr-4 last:pr-0 font-semibold text-slate-500 uppercase tracking-wide"
-                        >
-                          {col}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {dashboardData.map((rec) => {
-                      const comment = formatDashComment(rec)
-                      return (
-                        <tr
-                          key={`${rec.user_email}-${rec.competencia}`}
-                          className="hover:bg-slate-800/30 transition-colors"
-                        >
-                          <td className="py-2 pr-4 text-slate-300">
-                            {emailToDisplayName(rec.user_email)}
-                          </td>
-                          <td className="py-2 pr-4 text-slate-400">
-                            {competenciaShort(rec.competencia)}
-                          </td>
-                          <td className="py-2 pr-4">
-                            {rec.comportamental_nota != null && (
-                              <ScorePill score={rec.comportamental_nota} />
-                            )}
-                          </td>
-                          <td className="py-2 pr-4">
-                            {rec.tecnica_nota != null && <ScorePill score={rec.tecnica_nota} />}
-                          </td>
-                          <td className="py-2 pr-4">
-                            {rec.prazo_nota != null && <ScorePill score={rec.prazo_nota} />}
-                          </td>
-                          <td className="py-2 max-w-[220px]">
-                            {comment && (
-                              <span title={comment} className="text-slate-400 block truncate">
-                                {comment.length > 80 ? comment.slice(0, 80) + '…' : comment}
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </div>
-      )}
+      {activeTab === 'ingest' && <IngestReviewTab onOpenEvaluation={setOpenEvaluation} />}
+      {activeTab === 'dashboard' && <DashboardTab />}
 
       {openEvaluation && (
         <ReviewDrawer

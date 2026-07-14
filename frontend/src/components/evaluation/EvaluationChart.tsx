@@ -10,7 +10,7 @@ import {
 import type { Plugin, TooltipItem } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 import { competenciaShort } from '../../lib/format'
-import type { ClientEvaluation } from '../../types'
+import type { EvaluationScoreRecord } from '../../types'
 
 ChartJS.register(CategoryScale, LinearScale, LineController, LineElement, PointElement, Tooltip)
 
@@ -153,7 +153,7 @@ function DimensionChart({
 }
 
 interface EvaluationChartProps {
-  evaluations: ClientEvaluation[]
+  evaluations: EvaluationScoreRecord[]
 }
 
 export function EvaluationChart({ evaluations }: Readonly<EvaluationChartProps>) {

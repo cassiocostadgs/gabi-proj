@@ -1,4 +1,5 @@
-import type { ClientEvaluation } from '../../types'
+import { scoreBand, SCORE_BAND_BADGE_CLS } from '../../lib/evaluationScore'
+import type { EvaluationScoreRecord } from '../../types'
 
 const MONTH_PT = [
   'Janeiro',
@@ -20,16 +21,10 @@ function competenciaLong(val: string): string {
   return `${MONTH_PT[Number.parseInt(m, 10) - 1]} / ${y}`
 }
 
-function scoreBadgeCls(score: number): string {
-  if (score >= 4) return 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-  if (score === 3) return 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-  return 'bg-red-500/10 border-red-500/30 text-red-400'
-}
-
 function EvaluationCard({
   evaluation,
   defaultOpen,
-}: Readonly<{ evaluation: ClientEvaluation; defaultOpen: boolean }>) {
+}: Readonly<{ evaluation: EvaluationScoreRecord; defaultOpen: boolean }>) {
   const showPerDimension = evaluation.comentario_geral == null
 
   return (
@@ -44,21 +39,21 @@ function EvaluationCard({
         <div className="flex flex-wrap gap-2">
           {evaluation.comportamental_nota != null && (
             <span
-              className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${scoreBadgeCls(evaluation.comportamental_nota)}`}
+              className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${SCORE_BAND_BADGE_CLS[scoreBand(evaluation.comportamental_nota)]}`}
             >
               Comportamental: {evaluation.comportamental_nota}
             </span>
           )}
           {evaluation.tecnica_nota != null && (
             <span
-              className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${scoreBadgeCls(evaluation.tecnica_nota)}`}
+              className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${SCORE_BAND_BADGE_CLS[scoreBand(evaluation.tecnica_nota)]}`}
             >
               Técnica: {evaluation.tecnica_nota}
             </span>
           )}
           {evaluation.prazo_nota != null && (
             <span
-              className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${scoreBadgeCls(evaluation.prazo_nota)}`}
+              className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${SCORE_BAND_BADGE_CLS[scoreBand(evaluation.prazo_nota)]}`}
             >
               Prazo: {evaluation.prazo_nota}
             </span>
@@ -111,7 +106,7 @@ function EvaluationCard({
 
 interface EvaluationHistoryProps {
   isLoading: boolean
-  evaluations: ClientEvaluation[] | undefined
+  evaluations: EvaluationScoreRecord[] | undefined
 }
 
 export function EvaluationHistory({ isLoading, evaluations }: Readonly<EvaluationHistoryProps>) {
@@ -141,7 +136,7 @@ export function EvaluationHistory({ isLoading, evaluations }: Readonly<Evaluatio
       <h2 className="text-sm font-semibold text-slate-200">Histórico detalhado</h2>
       {evaluations.map((evaluationItem, index) => (
         <EvaluationCard
-          key={evaluationItem.id}
+          key={evaluationItem.competencia}
           evaluation={evaluationItem}
           defaultOpen={index === 0}
         />

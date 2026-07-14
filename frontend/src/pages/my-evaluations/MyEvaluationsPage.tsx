@@ -2,25 +2,15 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Layout } from '../../components/Layout'
 import { clientEvaluationService } from '../../services/client-evaluation.service'
-import { EvaluationSummary } from './EvaluationSummary'
-import { EvaluationChart } from './EvaluationChart'
-import { EvaluationHistory } from './EvaluationHistory'
-import type { ClientEvaluation } from '../../types'
-
-type RangeFilter = '6' | '12' | 'all'
-
-const RANGE_OPTIONS: Array<{ value: RangeFilter; label: string }> = [
-  { value: '6', label: '6 meses' },
-  { value: '12', label: '12 meses' },
-  { value: 'all', label: 'Tudo' },
-]
-
-const RANGE_LABEL: Record<RangeFilter, string> = { '6': '6m', '12': '12m', all: 'tudo' }
-
-function filterByRange(evaluationsAsc: ClientEvaluation[], range: RangeFilter): ClientEvaluation[] {
-  if (range === 'all') return evaluationsAsc
-  return evaluationsAsc.slice(-Number(range))
-}
+import { EvaluationSummary } from '../../components/evaluation/EvaluationSummary'
+import { EvaluationChart } from '../../components/evaluation/EvaluationChart'
+import { EvaluationHistory } from '../../components/evaluation/EvaluationHistory'
+import {
+  RANGE_OPTIONS,
+  RANGE_LABEL,
+  filterByRange,
+  type RangeFilter,
+} from '../../lib/evaluationRange'
 
 export function MyEvaluationsPage() {
   const [range, setRange] = useState<RangeFilter>('12')

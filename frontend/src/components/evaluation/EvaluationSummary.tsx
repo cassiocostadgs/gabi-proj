@@ -1,24 +1,6 @@
 import { competenciaShort } from '../../lib/format'
-import type { ClientEvaluation } from '../../types'
-
-type Band = 'good' | 'warn' | 'crit'
-
-function scoreBand(score: number): Band {
-  if (score >= 4) return 'good'
-  if (score === 3) return 'warn'
-  return 'crit'
-}
-
-const BAND_BORDER: Record<Band, string> = {
-  good: 'border-emerald-500/30',
-  warn: 'border-amber-500/30',
-  crit: 'border-red-500/30',
-}
-const BAND_TEXT: Record<Band, string> = {
-  good: 'text-emerald-400',
-  warn: 'text-amber-400',
-  crit: 'text-red-400',
-}
+import { scoreBand, SCORE_BAND_BORDER_CLS, SCORE_BAND_TEXT_CLS } from '../../lib/evaluationScore'
+import type { EvaluationScoreRecord } from '../../types'
 
 type DimensionKey = 'comportamental_nota' | 'tecnica_nota' | 'prazo_nota'
 
@@ -33,7 +15,7 @@ const DIMENSIONS: DimensionConfig[] = [
   { key: 'prazo_nota', label: 'Prazo' },
 ]
 
-function average(evaluationsList: ClientEvaluation[], key: DimensionKey): number | null {
+function average(evaluationsList: EvaluationScoreRecord[], key: DimensionKey): number | null {
   const values = evaluationsList
     .map((item) => item[key])
     .filter((value): value is number => value != null)
@@ -42,9 +24,9 @@ function average(evaluationsList: ClientEvaluation[], key: DimensionKey): number
 }
 
 interface EvaluationSummaryProps {
-  latest: ClientEvaluation
-  previous: ClientEvaluation | null
-  periodEvaluations: ClientEvaluation[]
+  latest: EvaluationScoreRecord
+  previous: EvaluationScoreRecord | null
+  periodEvaluations: EvaluationScoreRecord[]
   rangeLabel: string
 }
 
@@ -66,13 +48,15 @@ export function EvaluationSummary({
         return (
           <div
             key={dimension.key}
-            className={`bg-slate-800 border rounded-xl px-4 py-3 ${band ? BAND_BORDER[band] : 'border-slate-700'}`}
+            className={`bg-slate-800 border rounded-xl px-4 py-3 ${band ? SCORE_BAND_BORDER_CLS[band] : 'border-slate-700'}`}
           >
             <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">
               {dimension.label}
             </p>
             <div className="flex items-baseline gap-2">
-              <span className={`text-2xl font-bold ${band ? BAND_TEXT[band] : 'text-slate-300'}`}>
+              <span
+                className={`text-2xl font-bold ${band ? SCORE_BAND_TEXT_CLS[band] : 'text-slate-300'}`}
+              >
                 {current ?? '—'}
               </span>
               {diff != null && diff !== 0 && (

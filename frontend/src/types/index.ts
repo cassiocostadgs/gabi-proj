@@ -190,13 +190,11 @@ export type MatchStatus = 'auto' | 'manual' | 'nao_vinculado'
 export type EvaluationStatus = 'rascunho' | 'aprovado' | 'rejeitado'
 export type EvaluationOrigem = 'manual' | 'automacao'
 
-export interface ClientEvaluation {
-  id: number
+// Shape shared by every screen that only needs to plot/summarize scores
+// (EvaluationSummary, EvaluationChart, EvaluationHistory) — both the
+// per-user record and the admin dashboard's aggregated row satisfy it.
+export interface EvaluationScoreRecord {
   competencia: string
-  nome_extraido: string
-  user_email: string | null
-  match_status: MatchStatus
-  fornecedor_validado: number
   comportamental_nota: number | null
   comportamental_comentario: string | null
   tecnica_nota: number | null
@@ -204,6 +202,14 @@ export interface ClientEvaluation {
   prazo_nota: number | null
   prazo_comentario: string | null
   comentario_geral: string | null
+}
+
+export interface ClientEvaluation extends EvaluationScoreRecord {
+  id: number
+  nome_extraido: string
+  user_email: string | null
+  match_status: MatchStatus
+  fornecedor_validado: number
   raw_email_text: string
   email_message_id: string | null
   origem: EvaluationOrigem
@@ -227,15 +233,7 @@ export interface ClientEvaluationDraft {
   comentario_geral?: string | null
 }
 
-export interface ClientEvaluationDashboard {
+export interface ClientEvaluationDashboard extends EvaluationScoreRecord {
   user_email: string
   nome_extraido: string
-  competencia: string
-  comportamental_nota: number | null
-  tecnica_nota: number | null
-  prazo_nota: number | null
-  comportamental_comentario: string | null
-  tecnica_comentario: string | null
-  prazo_comentario: string | null
-  comentario_geral: string | null
 }
