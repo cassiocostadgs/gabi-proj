@@ -56,13 +56,20 @@ export const billingService = {
     cpf: string
     subcontrato: string
     profile: string
+    nome_completo: string
   }): Promise<void> => {
     await api.post('/api/admin/team', member)
   },
 
   updateMember: async (
     id: number,
-    member: { cpf: string; subcontrato: string; profile: string; is_active: boolean }
+    member: {
+      cpf: string
+      subcontrato: string
+      profile: string
+      nome_completo: string
+      is_active: boolean
+    }
   ): Promise<void> => {
     await api.put(`/api/admin/team/${id}`, member)
   },

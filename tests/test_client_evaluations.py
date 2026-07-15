@@ -126,12 +126,24 @@ def with_team_members(client, admin_h):
     )
     client.post(
         "/api/admin/team",
-        json={"user_email": "pedro.santos@db1.com.br", "cpf": "111", "subcontrato": "SC1", "profile": "DEV"},
+        json={
+            "user_email": "pedro.santos@db1.com.br",
+            "cpf": "111",
+            "subcontrato": "SC1",
+            "profile": "DEV",
+            "nome_completo": "Pedro Santos",
+        },
         headers=admin_h,
     )
     client.post(
         "/api/admin/team",
-        json={"user_email": "carlos.pereira@db1.com.br", "cpf": "222", "subcontrato": "SC1", "profile": "DEV"},
+        json={
+            "user_email": "carlos.pereira@db1.com.br",
+            "cpf": "222",
+            "subcontrato": "SC1",
+            "profile": "DEV",
+            "nome_completo": "Carlos Pereira",
+        },
         headers=admin_h,
     )
 
@@ -406,6 +418,53 @@ class TestUnlinkedProfessional:
         data = client.get(f"/api/admin/client-evaluations/{record_id}", headers=admin_h).json()
         assert data["match_status"] == "manual"
         assert data["user_email"] == "pedro.santos@db1.com.br"
+
+    def test_tc28_reprocess_unlinked_relinks_after_registration(self, client, admin_h):
+        # Ingested before the collaborator was registered in team_members at all — the
+        # historical "never got backfilled" case this endpoint exists to unblock.
+        resp = _ingest(client, admin_h, BODY_A)
+        record_id = resp.json()["id"]
+        assert client.get(
+            f"/api/admin/client-evaluations/{record_id}", headers=admin_h
+        ).json()["match_status"] == "nao_vinculado"
+
+        client.post(
+            "/api/admin/users",
+            json={"email": "pedro.santos@db1.com.br", "password": "prof123"},
+            headers=admin_h,
+        )
+        client.post(
+            "/api/admin/billing-rates",
+            json={"profile": "DEV", "valor_hora": 100.0},
+            headers=admin_h,
+        )
+        client.post(
+            "/api/admin/team",
+            json={
+                "user_email": "pedro.santos@db1.com.br",
+                "cpf": "111",
+                "subcontrato": "SC1",
+                "profile": "DEV",
+                "nome_completo": "Pedro Santos",
+            },
+            headers=admin_h,
+        )
+
+        reprocess_resp = client.post(
+            "/api/admin/client-evaluations/reprocess-unlinked", headers=admin_h
+        )
+        assert reprocess_resp.status_code == 200
+        assert reprocess_resp.json()["relinked"] == 1
+
+        data = client.get(f"/api/admin/client-evaluations/{record_id}", headers=admin_h).json()
+        assert data["match_status"] == "auto"
+        assert data["user_email"] == "pedro.santos@db1.com.br"
+
+    def test_tc28b_reprocess_with_no_candidates_relinks_nothing(self, client, admin_h):
+        _ingest(client, admin_h, BODY_UNKNOWN)
+        resp = client.post("/api/admin/client-evaluations/reprocess-unlinked", headers=admin_h)
+        assert resp.status_code == 200
+        assert resp.json()["relinked"] == 0
 
 
 # ── Story 6 — Admin dashboard (TC-29 to TC-32) ───────────────────────────────

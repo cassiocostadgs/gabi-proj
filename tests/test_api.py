@@ -527,7 +527,13 @@ class TestTeamMembers:
     def _create_member(self, client, auth_headers):
         return client.post(
             "/api/admin/team",
-            json={"user_email": "dev@db1.com.br", "cpf": "111.222.333-44", "subcontrato": "SUB 01", "profile": "pleno"},
+            json={
+                "user_email": "dev@db1.com.br",
+                "cpf": "111.222.333-44",
+                "subcontrato": "SUB 01",
+                "profile": "pleno",
+                "nome_completo": "Dev Teste",
+            },
             headers=auth_headers,
         )
 
@@ -541,7 +547,13 @@ class TestTeamMembers:
         client.post("/api/admin/billing-rates", json={"profile": "pleno", "valor_hora": 180.0}, headers=auth_headers)
         resp = client.post(
             "/api/admin/team",
-            json={"user_email": "ghost@db1.com.br", "cpf": "000", "subcontrato": "SUB X", "profile": "pleno"},
+            json={
+                "user_email": "ghost@db1.com.br",
+                "cpf": "000",
+                "subcontrato": "SUB X",
+                "profile": "pleno",
+                "nome_completo": "Ghost",
+            },
             headers=auth_headers,
         )
         assert resp.status_code == 404
@@ -550,7 +562,13 @@ class TestTeamMembers:
         client.post("/api/admin/users", json={"email": "dev@db1.com.br", "password": "senha123"}, headers=auth_headers)
         resp = client.post(
             "/api/admin/team",
-            json={"user_email": "dev@db1.com.br", "cpf": "000", "subcontrato": "SUB X", "profile": "inexistente"},
+            json={
+                "user_email": "dev@db1.com.br",
+                "cpf": "000",
+                "subcontrato": "SUB X",
+                "profile": "inexistente",
+                "nome_completo": "Dev Teste",
+            },
             headers=auth_headers,
         )
         assert resp.status_code == 400
@@ -566,7 +584,13 @@ class TestTeamMembers:
         member_id = client.get("/api/admin/team", headers=auth_headers).json()["members"][0]["id"]
         resp = client.put(
             f"/api/admin/team/{member_id}",
-            json={"cpf": "999.888.777-66", "subcontrato": "SUB 02", "profile": "pleno", "is_active": True},
+            json={
+                "cpf": "999.888.777-66",
+                "subcontrato": "SUB 02",
+                "profile": "pleno",
+                "nome_completo": "Dev Teste",
+                "is_active": True,
+            },
             headers=auth_headers,
         )
         assert resp.status_code == 200
@@ -587,7 +611,13 @@ class TestTeamMembers:
         member_id = client.get("/api/admin/team", headers=auth_headers).json()["members"][0]["id"]
         resp = client.put(
             f"/api/admin/team/{member_id}",
-            json={"cpf": "000", "subcontrato": "SUB X", "profile": "inexistente", "is_active": True},
+            json={
+                "cpf": "000",
+                "subcontrato": "SUB X",
+                "profile": "inexistente",
+                "nome_completo": "Dev Teste",
+                "is_active": True,
+            },
             headers=auth_headers,
         )
         assert resp.status_code == 400
@@ -596,7 +626,13 @@ class TestTeamMembers:
         client.post("/api/admin/billing-rates", json={"profile": "pleno", "valor_hora": 180.0}, headers=auth_headers)
         resp = client.put(
             "/api/admin/team/9999",
-            json={"cpf": "000", "subcontrato": "SUB X", "profile": "pleno", "is_active": True},
+            json={
+                "cpf": "000",
+                "subcontrato": "SUB X",
+                "profile": "pleno",
+                "nome_completo": "Dev Teste",
+                "is_active": True,
+            },
             headers=auth_headers,
         )
         assert resp.status_code == 404
@@ -787,7 +823,13 @@ class TestSubmissions:
         client.post("/api/admin/billing-rates", json={"profile": "pleno", "valor_hora": 180.0}, headers=auth_headers)
         client.post(
             "/api/admin/team",
-            json={"user_email": "tiagohlatki@db1.com.br", "cpf": "111.222.333-44", "subcontrato": "SUB 01", "profile": "pleno"},
+            json={
+                "user_email": "tiagohlatki@db1.com.br",
+                "cpf": "111.222.333-44",
+                "subcontrato": "SUB 01",
+                "profile": "pleno",
+                "nome_completo": "Tiago Hlatki",
+            },
             headers=auth_headers,
         )
         self._submit(client, auth_headers)
@@ -801,7 +843,13 @@ class TestSubmissions:
         client.post("/api/admin/billing-rates", json={"profile": "pleno", "valor_hora": 180.0}, headers=auth_headers)
         client.post(
             "/api/admin/team",
-            json={"user_email": "tiagohlatki@db1.com.br", "cpf": "111.222.333-44", "subcontrato": "SUB 01", "profile": "pleno"},
+            json={
+                "user_email": "tiagohlatki@db1.com.br",
+                "cpf": "111.222.333-44",
+                "subcontrato": "SUB 01",
+                "profile": "pleno",
+                "nome_completo": "Tiago Hlatki",
+            },
             headers=auth_headers,
         )
         self._submit(client, auth_headers)
@@ -1073,6 +1121,7 @@ class TestAdminTaskEntries:
                 "cpf": "111.222.333-44",
                 "subcontrato": "SUB 01",
                 "profile": "pleno",
+                "nome_completo": "Tiago Hlatki",
             },
             headers=auth_headers,
         )

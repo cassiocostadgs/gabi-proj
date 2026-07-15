@@ -125,6 +125,7 @@ export interface TeamMember {
   cpf: string
   subcontrato: string
   profile: string
+  nome_completo: string
   is_active: boolean
   deactivated_from_competencia: string | null
   created_at: string

@@ -66,6 +66,12 @@ function emailToDisplayName(email: string): string {
     .join(' ')
 }
 
+// Prefers the registered full name — falls back to the e-mail-derived guess only for
+// legacy members whose nome_completo hasn't been backfilled yet.
+function memberDisplayName(member: TeamMember): string {
+  return member.nome_completo || emailToDisplayName(member.user_email)
+}
+
 function ScorePill({ score }: Readonly<{ score: number }>) {
   return (
     <span
@@ -201,11 +207,12 @@ function ReviewDrawer({
     queryFn: billingService.listTeam,
   })
 
-  const activeMembers = allMembers
-    .filter((m: TeamMember) => m.is_active)
-    .sort((a: TeamMember, b: TeamMember) =>
-      emailToDisplayName(a.user_email).localeCompare(emailToDisplayName(b.user_email))
-    )
+  // Inactive members stay selectable — a departed collaborator must still be linkable to
+  // evaluations from when they were active — but sort after actives, each group by name.
+  const sortedMembers = [...allMembers].sort((a: TeamMember, b: TeamMember) => {
+    if (a.is_active !== b.is_active) return a.is_active ? -1 : 1
+    return memberDisplayName(a).localeCompare(memberDisplayName(b))
+  })
 
   const [draftUserEmail, setDraftUserEmail] = useState<string | null>(null)
   const [draftComportamentalNota, setDraftComportamentalNota] = useState<number | null>(null)
@@ -281,9 +288,9 @@ function ReviewDrawer({
 
   const memberOptions = [
     { value: UNSET_EMAIL, label: '— Selecionar profissional —' },
-    ...activeMembers.map((m: TeamMember) => ({
+    ...sortedMembers.map((m: TeamMember) => ({
       value: m.user_email,
-      label: emailToDisplayName(m.user_email),
+      label: m.is_active ? memberDisplayName(m) : `${memberDisplayName(m)} (Inativo)`,
     })),
   ]
 
@@ -656,10 +663,28 @@ function IngestReviewTab({ onOpenEvaluation }: Readonly<IngestReviewTabProps>) {
     null
   )
   const [ingestErrorMessage, setIngestErrorMessage] = useState('')
+  const [reprocessMessage, setReprocessMessage] = useState('')
 
   const { data: evaluations = [], isLoading } = useQuery({
     queryKey: ['client-evaluations'],
     queryFn: () => clientEvaluationService.listEvaluations(),
+  })
+
+  const unlinkedCount = evaluations.filter(
+    (e) => e.match_status === 'nao_vinculado' && e.status === 'rascunho'
+  ).length
+
+  const reprocessMutation = useMutation({
+    mutationFn: () => clientEvaluationService.reprocessUnlinked(),
+    onSuccess: ({ relinked }) => {
+      if (relinked > 0) {
+        const suffix = relinked === 1 ? '' : 's'
+        setReprocessMessage(`${relinked} registro${suffix} vinculado${suffix} com sucesso.`)
+      } else {
+        setReprocessMessage('Nenhum registro pôde ser vinculado com o cadastro atual.')
+      }
+      qc.invalidateQueries({ queryKey: ['client-evaluations'] })
+    },
   })
 
   const competencias = useMemo(
@@ -795,13 +820,30 @@ function IngestReviewTab({ onOpenEvaluation }: Readonly<IngestReviewTabProps>) {
         <p className="text-sm text-slate-500 text-center py-8">Nenhuma avaliação recebida ainda.</p>
       )}
 
-      <button
-        type="button"
-        onClick={() => setIngestOpen((o) => !o)}
-        className="inline-flex items-center gap-1.5 mb-4 px-3.5 py-2 rounded-lg border border-slate-700 bg-slate-800/50 hover:bg-slate-700 text-slate-300 hover:text-slate-100 text-xs font-semibold transition-colors"
-      >
-        {ingestOpen ? '− Recolher lançamento manual' : '+ Lançamento manual'}
-      </button>
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <button
+          type="button"
+          onClick={() => setIngestOpen((o) => !o)}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-700 bg-slate-800/50 hover:bg-slate-700 text-slate-300 hover:text-slate-100 text-xs font-semibold transition-colors"
+        >
+          {ingestOpen ? '− Recolher lançamento manual' : '+ Lançamento manual'}
+        </button>
+        {unlinkedCount > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setReprocessMessage('')
+              reprocessMutation.mutate()
+            }}
+            disabled={reprocessMutation.isPending}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-amber-700/50 bg-amber-950/40 hover:bg-amber-900/40 text-amber-300 hover:text-amber-200 text-xs font-semibold transition-colors disabled:opacity-50"
+          >
+            {reprocessMutation.isPending ? <Spinner size="sm" /> : <AlertTriangle size={13} />}
+            Reprocessar {unlinkedCount} não vinculado{unlinkedCount === 1 ? '' : 's'}
+          </button>
+        )}
+        {reprocessMessage && <p className="text-xs text-slate-400">{reprocessMessage}</p>}
+      </div>
 
       {ingestOpen && (
         <div className="mb-6 max-w-3xl">

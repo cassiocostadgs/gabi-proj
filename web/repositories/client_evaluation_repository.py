@@ -138,8 +138,30 @@ def update_status(record_id: int, new_status: str, reviewed_by: str, reviewed_at
 def list_team_members_active() -> list:
     with _db() as conn:
         return conn.execute(
-            "SELECT user_email FROM team_members WHERE is_active = 1 ORDER BY user_email"
+            "SELECT user_email, nome_completo FROM team_members"
+            " WHERE is_active = 1 ORDER BY user_email"
         ).fetchall()
+
+
+def list_unlinked_drafts() -> list:
+    """Drafts still awaiting a professional link — candidates for batch reprocessing."""
+    with _db() as conn:
+        return conn.execute(
+            "SELECT * FROM client_evaluations"
+            " WHERE status = 'rascunho' AND match_status = 'nao_vinculado'"
+        ).fetchall()
+
+
+def relink_auto(record_id: int, user_email: str, edited_by: str, edited_at: str) -> int:
+    """Apply an algorithmic (re)match found by batch reprocessing — status stays 'auto',
+    unlike update_draft() which marks manual edits as 'manual'."""
+    with _db() as conn:
+        result = conn.execute(
+            "UPDATE client_evaluations SET user_email = ?, match_status = 'auto',"
+            " edited_by = ?, edited_at = ? WHERE id = ?",
+            (user_email, edited_by, edited_at, record_id),
+        )
+    return result.rowcount
 
 
 def get_dashboard(

@@ -51,6 +51,13 @@ export const clientEvaluationService = {
     await api.post(`/api/admin/client-evaluations/${id}/reject`)
   },
 
+  reprocessUnlinked: async (): Promise<{ relinked: number }> => {
+    const { data } = await api.post<{ ok: boolean; relinked: number }>(
+      '/api/admin/client-evaluations/reprocess-unlinked'
+    )
+    return { relinked: data.relinked }
+  },
+
   getDashboard: async (filters: DashboardFilters): Promise<ClientEvaluationDashboard[]> => {
     const params: Record<string, string> = {}
     if (filters.userEmail) params.user_email = filters.userEmail

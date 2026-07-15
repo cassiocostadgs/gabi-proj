@@ -29,7 +29,7 @@ from jose import JWTError, jwt
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 load_dotenv()
 
@@ -128,13 +128,14 @@ def _init_db() -> None:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS team_members (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_email  TEXT    UNIQUE NOT NULL,
-                cpf         TEXT    NOT NULL,
-                subcontrato TEXT    NOT NULL,
-                profile     TEXT    NOT NULL,
-                is_active   INTEGER NOT NULL DEFAULT 1,
-                created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_email    TEXT    UNIQUE NOT NULL,
+                cpf           TEXT    NOT NULL,
+                subcontrato   TEXT    NOT NULL,
+                profile       TEXT    NOT NULL,
+                nome_completo TEXT    NOT NULL DEFAULT '',
+                is_active     INTEGER NOT NULL DEFAULT 1,
+                created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
             )
         """)
         conn.execute("""
@@ -209,6 +210,7 @@ def _init_db() -> None:
             "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE ga_submissions ADD COLUMN approved_snapshot TEXT",
             "ALTER TABLE team_members ADD COLUMN deactivated_from_competencia TEXT",
+            "ALTER TABLE team_members ADD COLUMN nome_completo TEXT NOT NULL DEFAULT ''",
         ]:
             with contextlib.suppress(sqlite3.OperationalError):
                 conn.execute(ddl)
@@ -965,12 +967,14 @@ class CreateTeamMemberRequest(BaseModel):
     cpf: str
     subcontrato: str
     profile: str
+    nome_completo: str = Field(min_length=1)
 
 
 class UpdateTeamMemberRequest(BaseModel):
     cpf: str
     subcontrato: str
     profile: str
+    nome_completo: str = Field(min_length=1)
     is_active: bool = True
 
 
@@ -978,7 +982,7 @@ class UpdateTeamMemberRequest(BaseModel):
 async def admin_list_team(_: AdminUser):
     with _db() as conn:
         rows = conn.execute("""
-            SELECT id, user_email, cpf, subcontrato, profile, is_active, created_at
+            SELECT id, user_email, cpf, subcontrato, profile, nome_completo, is_active, created_at
             FROM team_members ORDER BY id
         """).fetchall()
     return {"members": [dict(r) for r in rows]}
@@ -1005,9 +1009,9 @@ async def admin_create_team_member(body: CreateTeamMemberRequest, _: AdminUser):
             raise HTTPException(status_code=400, detail="Perfil não cadastrado em tarifas")
         try:
             conn.execute(
-                "INSERT INTO team_members (user_email, cpf, subcontrato, profile)"
-                " VALUES (?, ?, ?, ?)",
-                (body.user_email, body.cpf, body.subcontrato, body.profile),
+                "INSERT INTO team_members (user_email, cpf, subcontrato, profile, nome_completo)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (body.user_email, body.cpf, body.subcontrato, body.profile, body.nome_completo),
             )
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=409, detail="Usuário já é membro do time") from exc
@@ -1029,8 +1033,16 @@ async def admin_update_team_member(member_id: int, body: UpdateTeamMemberRequest
         if not rate:
             raise HTTPException(status_code=400, detail="Perfil não cadastrado em tarifas")
         result = conn.execute(
-            "UPDATE team_members SET cpf=?, subcontrato=?, profile=?, is_active=? WHERE id=?",
-            (body.cpf, body.subcontrato, body.profile, int(body.is_active), member_id),
+            "UPDATE team_members SET cpf=?, subcontrato=?, profile=?, nome_completo=?, is_active=?"
+            " WHERE id=?",
+            (
+                body.cpf,
+                body.subcontrato,
+                body.profile,
+                body.nome_completo,
+                int(body.is_active),
+                member_id,
+            ),
         )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail=MEMBER_NOT_FOUND)
@@ -1680,8 +1692,8 @@ def _ce_row_to_dict(row) -> dict:
     return dict(row) if row else {}
 
 
-def _active_team_emails() -> list:
-    return [r["user_email"] for r in client_evaluation_repository.list_team_members_active()]
+def _active_team_members() -> list:
+    return client_evaluation_repository.list_team_members_active()
 
 
 @app.post(
@@ -1702,9 +1714,9 @@ async def admin_ingest_evaluation(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    active_emails = _active_team_emails()
+    active_members = _active_team_members()
     user_email, match_status = client_evaluation_engine.auto_link(
-        parsed["nome_extraido"], active_emails
+        parsed["nome_extraido"], active_members
     )
 
     # Deduplication rule 2 — by (user_email, competencia) when user_email resolved
@@ -1861,6 +1873,24 @@ async def admin_reject_evaluation(record_id: int, admin: AdminUser):
     return {"ok": True}
 
 
+@app.post("/api/admin/client-evaluations/reprocess-unlinked")
+async def admin_reprocess_unlinked_evaluations(admin: AdminUser):
+    """Re-run auto_link() for every 'nao_vinculado' draft against the current team roster —
+    picks up matches that only became possible after a collaborator was registered, had their
+    nome_completo filled in, or was reactivated."""
+    active_members = _active_team_members()
+    edited_at = datetime.now(tz=UTC).isoformat()
+    relinked = 0
+    for row in client_evaluation_repository.list_unlinked_drafts():
+        user_email, _match_status = client_evaluation_engine.auto_link(
+            row["nome_extraido"], active_members
+        )
+        if user_email:
+            client_evaluation_repository.relink_auto(row["id"], user_email, admin, edited_at)
+            relinked += 1
+    return {"ok": True, "relinked": relinked}
+
+
 @app.post(
     "/api/integrations/mag-evaluation",
     status_code=201,
@@ -1890,9 +1920,9 @@ async def integration_mag_evaluation(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    active_emails = _active_team_emails()
+    active_members = _active_team_members()
     user_email, match_status = client_evaluation_engine.auto_link(
-        parsed["nome_extraido"], active_emails
+        parsed["nome_extraido"], active_members
     )
 
     # Deduplication rules 2 & 3 — silent skip on automated path

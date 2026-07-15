@@ -23,12 +23,14 @@ export function EquipeSection() {
   const [cpf, setCpf] = useState('')
   const [subcontrato, setSubcontrato] = useState('')
   const [profile, setProfile] = useState('')
+  const [nomeCompleto, setNomeCompleto] = useState('')
   const [formError, setFormError] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editFields, setEditFields] = useState({
     cpf: '',
     subcontrato: '',
     profile: '',
+    nome_completo: '',
     is_active: true,
   })
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
@@ -56,12 +58,20 @@ export function EquipeSection() {
   const availableUsers = users.filter((u) => !existingEmails.has(u.email))
 
   const createMutation = useMutation({
-    mutationFn: () => billingService.createMember({ user_email: email, cpf, subcontrato, profile }),
+    mutationFn: () =>
+      billingService.createMember({
+        user_email: email,
+        cpf,
+        subcontrato,
+        profile,
+        nome_completo: nomeCompleto,
+      }),
     onSuccess: () => {
       setEmail('')
       setCpf('')
       setSubcontrato('')
       setProfile('')
+      setNomeCompleto('')
       setFormError('')
       qc.invalidateQueries({ queryKey: ['admin-team'] })
     },
@@ -200,6 +210,23 @@ export function EquipeSection() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
             <div>
               <label
+                htmlFor="equipe-nome"
+                className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5"
+              >
+                Nome completo
+              </label>
+              <input
+                id="equipe-nome"
+                type="text"
+                value={nomeCompleto}
+                onChange={(e) => setNomeCompleto(e.target.value)}
+                placeholder="Nome Sobrenome"
+                required
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-50 placeholder-slate-600 outline-none focus:border-indigo-500 transition-colors"
+              />
+            </div>
+            <div>
+              <label
                 htmlFor="equipe-usuario"
                 className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5"
               >
@@ -291,7 +318,16 @@ export function EquipeSection() {
               className={`border rounded-lg px-4 py-3 text-xs ${m.is_active ? 'bg-slate-900 border-slate-700' : 'bg-slate-950 border-slate-800 opacity-50'}`}
             >
               {editingId === m.id ? (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                  <input
+                    type="text"
+                    value={editFields.nome_completo}
+                    onChange={(e) =>
+                      setEditFields((f) => ({ ...f, nome_completo: e.target.value }))
+                    }
+                    placeholder="Nome completo"
+                    className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-50 text-xs outline-none focus:border-indigo-500"
+                  />
                   <input
                     type="text"
                     value={editFields.cpf}
@@ -335,7 +371,14 @@ export function EquipeSection() {
               ) : (
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="font-semibold text-slate-300">{m.user_email}</span>
+                    {m.nome_completo ? (
+                      <span className="font-semibold text-slate-300">{m.nome_completo}</span>
+                    ) : (
+                      <span className="font-semibold text-amber-400 italic">
+                        Nome pendente de cadastro
+                      </span>
+                    )}
+                    <span className="text-slate-500 ml-3">{m.user_email}</span>
                     <span className="text-slate-500 ml-3">{m.cpf}</span>
                     <span className="text-slate-500 ml-3">{m.subcontrato}</span>
                     <span className="ml-2 bg-slate-800 text-slate-400 border border-slate-700 text-[0.6rem] font-bold px-1.5 py-0.5 rounded uppercase">
@@ -357,6 +400,7 @@ export function EquipeSection() {
                               cpf: m.cpf,
                               subcontrato: m.subcontrato,
                               profile: m.profile,
+                              nome_completo: m.nome_completo,
                               is_active: m.is_active,
                             })
                           }}

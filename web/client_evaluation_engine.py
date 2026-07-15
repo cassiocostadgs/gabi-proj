@@ -4,7 +4,7 @@
 import html as _html
 import re
 
-from gabi_engine import PARTICLES, match_name, norm
+from gabi_engine import PARTICLES, norm
 
 _COMPETENCIA_RE = re.compile(r"Compet[eê]ncia:\s*(\d{1,2})\s*/\s*(\d{4})", re.IGNORECASE)
 _COLABORADOR_RE = re.compile(r"Colaborador:\s*(.+)", re.IGNORECASE)
@@ -215,27 +215,45 @@ def strip_html(content: str) -> str:
     return _html.unescape(content)
 
 
-def _email_to_prefix(email: str) -> str:
-    return email.split("@")[0]
+def _name_tokens(name: str) -> set:
+    return {t for t in norm(name).split() if t not in PARTICLES}
 
 
-def auto_link(nome_extraido: str, active_emails: list) -> tuple:
+def auto_link(nome_extraido: str, active_members: list) -> tuple:
     """
-    Attempt to link nome_extraido to an active team member via match_name().
+    Attempt to link nome_extraido to an active team member by comparing it directly
+    against each member's registered nome_completo (not inferred from e-mail — corporate
+    e-mail formatting is inconsistent, e.g. "sobrenome.nome" instead of "nome.sobrenome").
 
-    Uses norm() and PARTICLES (imported from gabi_engine) to validate the name
-    has at least one meaningful token before attempting the match.
+    active_members: iterable of objects/rows exposing "user_email" and "nome_completo".
+
+    A member matches when the tokens of nome_extraido and of their nome_completo are subsets
+    of one another, in either direction (order-independent):
+      - nome_extraido may carry an extra token nome_completo doesn't have (e.g. a middle name
+        included in the MAG e-mail but omitted from the registration), or
+      - nome_completo may carry extra tokens nome_extraido doesn't have (e.g. a compound legal
+        name like "Gabriela Guilherme de Almeida Castro" registered in full while the MAG
+        e-mail and corporate address both use the short form "Gabriela Almeida").
+    Members with an empty nome_completo (not yet backfilled) never match. If more than one
+    member matches, the result is ambiguous and treated as no match — safer than guessing
+    wrong. Because the match is subset-based rather than exact, two different people whose
+    short and long names happen to overlap this way could in principle collide — the
+    ambiguity check catches it when both are registered, but not if only one is.
 
     Returns (user_email | None, match_status).
     """
-    toks = [t for t in norm(nome_extraido).split() if t not in PARTICLES]
-    if not toks:
+    extracted = _name_tokens(nome_extraido)
+    if not extracted:
         return None, "nao_vinculado"
 
-    prefixes = [_email_to_prefix(e) for e in active_emails]
-    matched = match_name(nome_extraido, prefixes)
-    if matched is None:
-        return None, "nao_vinculado"
+    candidates = []
+    for member in active_members:
+        candidate_tokens = _name_tokens(member["nome_completo"])
+        if candidate_tokens and (
+            candidate_tokens.issubset(extracted) or extracted.issubset(candidate_tokens)
+        ):
+            candidates.append(member)
 
-    email = next((e for e in active_emails if _email_to_prefix(e) == matched), None)
-    return email, "auto"
+    if len(candidates) == 1:
+        return candidates[0]["user_email"], "auto"
+    return None, "nao_vinculado"

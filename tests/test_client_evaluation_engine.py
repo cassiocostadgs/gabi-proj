@@ -241,26 +241,73 @@ class TestStripHtml:
 
 # ── auto_link ─────────────────────────────────────────────────────────────────
 
+def _member(user_email: str, nome_completo: str) -> dict:
+    return {"user_email": user_email, "nome_completo": nome_completo}
+
+
 class TestAutoLink:
     def test_matches_pedro_santos(self):
-        emails = ["pedro.santos@db1.com.br", "carlos.pereira@db1.com.br"]
-        user_email, status = engine.auto_link("Pedro Santos", emails)
+        members = [
+            _member("pedro.santos@db1.com.br", "Pedro Santos"),
+            _member("carlos.pereira@db1.com.br", "Carlos Pereira"),
+        ]
+        user_email, status = engine.auto_link("Pedro Santos", members)
         assert user_email == "pedro.santos@db1.com.br"
         assert status == "auto"
 
     def test_matches_uppercase_name(self):
-        emails = ["carlos.pereira@db1.com.br"]
-        user_email, status = engine.auto_link("CARLOS PEREIRA", emails)
+        members = [_member("carlos.pereira@db1.com.br", "Carlos Pereira")]
+        user_email, status = engine.auto_link("CARLOS PEREIRA", members)
         assert user_email == "carlos.pereira@db1.com.br"
         assert status == "auto"
 
     def test_no_match_returns_nao_vinculado(self):
-        emails = ["pedro.santos@db1.com.br"]
-        user_email, status = engine.auto_link("Nome Totalmente Desconhecido", emails)
+        members = [_member("pedro.santos@db1.com.br", "Pedro Santos")]
+        user_email, status = engine.auto_link("Nome Totalmente Desconhecido", members)
         assert user_email is None
         assert status == "nao_vinculado"
 
-    def test_empty_email_list_returns_nao_vinculado(self):
+    def test_empty_member_list_returns_nao_vinculado(self):
         user_email, status = engine.auto_link("Pedro Santos", [])
+        assert user_email is None
+        assert status == "nao_vinculado"
+
+    def test_matches_regardless_of_email_word_order(self):
+        # Corporate e-mail follows "sobrenome.nome" instead of the usual "nome.sobrenome" —
+        # matching against nome_completo directly must not depend on e-mail formatting.
+        members = [_member("ferreira.marcelo@db1.com.br", "Marcelo Ferreira")]
+        user_email, status = engine.auto_link("Marcelo Ferreira", members)
+        assert user_email == "ferreira.marcelo@db1.com.br"
+        assert status == "auto"
+
+    def test_tolerates_extra_token_in_extracted_name(self):
+        # nome_extraido may include a middle name absent from the registered nome_completo.
+        members = [_member("pedro.santos@db1.com.br", "Pedro Santos")]
+        user_email, status = engine.auto_link("Pedro Souza Santos", members)
+        assert user_email == "pedro.santos@db1.com.br"
+        assert status == "auto"
+
+    def test_tolerates_extra_token_in_nome_completo(self):
+        # nome_completo may carry a full legal name with more surnames than the short form
+        # actually used in MAG's e-mail (and reflected in the corporate e-mail prefix).
+        members = [_member("gabriela.almeida@db1.com.br", "Gabriela Guilherme de Almeida Castro")]
+        user_email, status = engine.auto_link("Gabriela Almeida", members)
+        assert user_email == "gabriela.almeida@db1.com.br"
+        assert status == "auto"
+
+    def test_ambiguous_match_returns_nao_vinculado(self):
+        # Two candidates match the same extracted name — never guess, resolve manually.
+        members = [
+            _member("pedro.santos@db1.com.br", "Pedro Santos"),
+            _member("pedro.souza@db1.com.br", "Pedro Souza Santos"),
+        ]
+        user_email, status = engine.auto_link("Pedro Souza Santos", members)
+        assert user_email is None
+        assert status == "nao_vinculado"
+
+    def test_blank_nome_completo_never_matches(self):
+        # Legacy member not yet backfilled with a full name — must not match anything.
+        members = [_member("pedro.santos@db1.com.br", "")]
+        user_email, status = engine.auto_link("Pedro Santos", members)
         assert user_email is None
         assert status == "nao_vinculado"
