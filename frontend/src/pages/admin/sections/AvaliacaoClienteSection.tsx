@@ -699,6 +699,14 @@ function IngestReviewTab({ onOpenEvaluation }: Readonly<IngestReviewTabProps>) {
     }
   }, [competencias, selectedComp])
 
+  const pendingCompetencias = useMemo(() => {
+    const set = new Set<string>()
+    evaluations.forEach((e) => {
+      if (e.status === 'rascunho') set.add(e.competencia)
+    })
+    return set
+  }, [evaluations])
+
   const compIdx = selectedComp ? competencias.indexOf(selectedComp) : -1
 
   const compItems = useMemo(
@@ -784,13 +792,19 @@ function IngestReviewTab({ onOpenEvaluation }: Readonly<IngestReviewTabProps>) {
               <button
                 key={c}
                 onClick={() => setSelectedComp(c)}
-                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors border ${
+                className={`relative px-2 py-0.5 rounded text-xs font-medium transition-colors border ${
                   selectedComp === c
                     ? 'bg-blue-700/20 text-blue-300 border-blue-700/40'
                     : 'text-slate-600 border-transparent hover:text-slate-300 hover:border-slate-700'
                 }`}
               >
                 {competenciaShort(c)}
+                {pendingCompetencias.has(c) && (
+                  <span
+                    title="Há avaliações pendentes de aprovação neste mês"
+                    className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400"
+                  />
+                )}
               </button>
             ))}
           </div>
