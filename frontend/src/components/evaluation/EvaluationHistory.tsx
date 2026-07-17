@@ -1,4 +1,5 @@
-import { scoreBand, SCORE_BAND_BADGE_CLS } from '../../lib/evaluationScore'
+import { scoreBand, SCORE_BAND_BADGE_CLS, scoreHint } from '../../lib/evaluationScore'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import type { EvaluationScoreRecord } from '../../types'
 
 const MONTH_PT = [
@@ -38,25 +39,46 @@ function EvaluationCard({
         </h3>
         <div className="flex flex-wrap gap-2">
           {evaluation.comportamental_nota != null && (
-            <span
-              className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${SCORE_BAND_BADGE_CLS[scoreBand(evaluation.comportamental_nota)]}`}
-            >
-              Comportamental: {evaluation.comportamental_nota}
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${SCORE_BAND_BADGE_CLS[scoreBand(evaluation.comportamental_nota)]}`}
+                  >
+                    Comportamental: {evaluation.comportamental_nota}
+                  </span>
+                }
+              />
+              <TooltipContent>{scoreHint(evaluation.comportamental_nota)}</TooltipContent>
+            </Tooltip>
           )}
           {evaluation.tecnica_nota != null && (
-            <span
-              className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${SCORE_BAND_BADGE_CLS[scoreBand(evaluation.tecnica_nota)]}`}
-            >
-              Técnica: {evaluation.tecnica_nota}
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${SCORE_BAND_BADGE_CLS[scoreBand(evaluation.tecnica_nota)]}`}
+                  >
+                    Técnica: {evaluation.tecnica_nota}
+                  </span>
+                }
+              />
+              <TooltipContent>{scoreHint(evaluation.tecnica_nota)}</TooltipContent>
+            </Tooltip>
           )}
           {evaluation.prazo_nota != null && (
-            <span
-              className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${SCORE_BAND_BADGE_CLS[scoreBand(evaluation.prazo_nota)]}`}
-            >
-              Prazo: {evaluation.prazo_nota}
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${SCORE_BAND_BADGE_CLS[scoreBand(evaluation.prazo_nota)]}`}
+                  >
+                    Prazo: {evaluation.prazo_nota}
+                  </span>
+                }
+              />
+              <TooltipContent>{scoreHint(evaluation.prazo_nota)}</TooltipContent>
+            </Tooltip>
           )}
         </div>
       </summary>

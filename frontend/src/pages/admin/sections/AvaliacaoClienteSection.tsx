@@ -21,7 +21,8 @@ import { EvaluationHistory } from '../../../components/evaluation/EvaluationHist
 import { clientEvaluationService } from '../../../services/client-evaluation.service'
 import { billingService } from '../../../services/billing.service'
 import { competenciaLabel, competenciaShort, fmtDatetime } from '../../../lib/format'
-import { scoreBand, SCORE_BAND_BADGE_CLS } from '../../../lib/evaluationScore'
+import { scoreBand, SCORE_BAND_BADGE_CLS, scoreHint } from '../../../lib/evaluationScore'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip'
 import {
   RANGE_OPTIONS,
   RANGE_LABEL,
@@ -74,11 +75,18 @@ function memberDisplayName(member: TeamMember): string {
 
 function ScorePill({ score }: Readonly<{ score: number }>) {
   return (
-    <span
-      className={`inline-flex items-center justify-center w-6 h-6 rounded-full border text-[0.65rem] font-bold ${SCORE_BAND_BADGE_CLS[scoreBand(score)]}`}
-    >
-      {score}
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className={`inline-flex items-center justify-center w-6 h-6 rounded-full border text-[0.65rem] font-bold ${SCORE_BAND_BADGE_CLS[scoreBand(score)]}`}
+          >
+            {score}
+          </span>
+        }
+      />
+      <TooltipContent>{scoreHint(score)}</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -600,25 +608,46 @@ function RosterCard({ person, range, defaultOpen }: Readonly<RosterCardProps>) {
         </div>
         <div className="flex gap-1.5 shrink-0">
           {latest.comportamental_nota != null && (
-            <span
-              className={`px-2 py-0.5 rounded-full border text-[0.65rem] font-bold ${SCORE_BAND_BADGE_CLS[scoreBand(latest.comportamental_nota)]}`}
-            >
-              C {latest.comportamental_nota}
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    className={`px-2 py-0.5 rounded-full border text-[0.65rem] font-bold ${SCORE_BAND_BADGE_CLS[scoreBand(latest.comportamental_nota)]}`}
+                  >
+                    C {latest.comportamental_nota}
+                  </span>
+                }
+              />
+              <TooltipContent>{scoreHint(latest.comportamental_nota)}</TooltipContent>
+            </Tooltip>
           )}
           {latest.tecnica_nota != null && (
-            <span
-              className={`px-2 py-0.5 rounded-full border text-[0.65rem] font-bold ${SCORE_BAND_BADGE_CLS[scoreBand(latest.tecnica_nota)]}`}
-            >
-              T {latest.tecnica_nota}
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    className={`px-2 py-0.5 rounded-full border text-[0.65rem] font-bold ${SCORE_BAND_BADGE_CLS[scoreBand(latest.tecnica_nota)]}`}
+                  >
+                    T {latest.tecnica_nota}
+                  </span>
+                }
+              />
+              <TooltipContent>{scoreHint(latest.tecnica_nota)}</TooltipContent>
+            </Tooltip>
           )}
           {latest.prazo_nota != null && (
-            <span
-              className={`px-2 py-0.5 rounded-full border text-[0.65rem] font-bold ${SCORE_BAND_BADGE_CLS[scoreBand(latest.prazo_nota)]}`}
-            >
-              P {latest.prazo_nota}
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    className={`px-2 py-0.5 rounded-full border text-[0.65rem] font-bold ${SCORE_BAND_BADGE_CLS[scoreBand(latest.prazo_nota)]}`}
+                  >
+                    P {latest.prazo_nota}
+                  </span>
+                }
+              />
+              <TooltipContent>{scoreHint(latest.prazo_nota)}</TooltipContent>
+            </Tooltip>
           )}
         </div>
         <ChevronDown
