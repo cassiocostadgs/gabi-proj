@@ -238,3 +238,60 @@ export interface ClientEvaluationDashboard extends EvaluationScoreRecord {
   user_email: string
   nome_extraido: string
 }
+
+// ── TL Evaluation domain ──────────────────────────────────────────────────────
+
+export interface Squad {
+  id: number
+  nome: string
+  techLeadUserEmail: string
+}
+
+export interface SquadMember {
+  id: number
+  squadId: number
+  nome: string
+  papel: string
+  senioridade: string
+  fornecedor: string
+  active: boolean
+}
+
+export interface TlEvaluation {
+  id: number
+  squadMemberId: number
+  nome?: string
+  competencia: string
+  comportamentalNota: number
+  comportamentalParagrafo: string
+  tecnicaNota: number
+  tecnicaParagrafo: string
+  prazoNota: number
+  prazoParagrafo: string
+  status: 'confirmado'
+  confirmedBy: string
+  confirmedAt: string
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export type ChatTurn =
+  | { type: 'ask_question'; question: string }
+  | {
+      type: 'propose_evaluation'
+      comportamentalNota: number
+      comportamentalParagrafo: string
+      tecnicaNota: number
+      tecnicaParagrafo: string
+      prazoNota: number
+      prazoParagrafo: string
+    }
+
+export interface SquadCompetenciaStatus {
+  closed: boolean
+  closedAt?: string
+  closedBy?: string
+}

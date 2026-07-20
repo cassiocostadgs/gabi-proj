@@ -1,0 +1,120 @@
+# Tasks: TL Evaluation
+
+- [x] **T1. Skill authoring and AGENTS.md registration**
+  - **Target 1**: `.agents/skills/tl-evaluation/SKILL.md` (new file — this skill does not yet exist; create it as the authoritative source for the new bounded context)
+    - Affected sections: entire new file.
+    - Expected change: create the authoritative skill documenting all business rules inherited from the Cowork skill `avaliacao-mensal-tl` (dimensions: Comportamental, Técnica, Prazos de Entrega; score scale 1–5; Gate A — score-5 requires a stated fact of overperformance recognized beyond the TL; Gate B — generic positive claims without a concrete example must be challenged before becoming final text; tone/voice rule — the evaluated professional is always the grammatical subject, no third-person narration markers); data model for all four tables (`squads`, `squad_members`, `tl_evaluations`, `squad_competencia_closures` — full column list, types, constraints, and indexes); all REST endpoint contracts (method, path, auth mechanism, request/response shapes, HTTP status codes); chat turn structure (`ask_question` / `propose_evaluation` tool schemas); stateless message-passing contract for `POST /api/tl-evaluations/chat`; TL-ownership check pattern (`is_squad_tl(user_email, squad_id) -> bool`); monthly closure flow and its UX decision (see "Monthly closure" risk in spec.md); PDF aggregation logic.
+    - Origin: AGENTS.md — "local skills in `.agents/skills/` are the authoritative domain documentation source"; all implementation tasks (T2–T10) read this skill during execution and depend on it being accurate before they begin.
+  - **Target 2**: `AGENTS.md`
+    - Affected section: "Business Domains" table (currently six rows, orders 0–5).
+    - Expected change: add row for order 6 — domain `tl-evaluation`, key responsibility "TL-driven squad evaluation chat flow (Gates A/B, score 1–5, dimensions), squad and membership management, monthly closure, and PDF generation."
+    - Origin: spec.md "Domain" section — "This spec introduces a new bounded context as a seventh domain in GABI alongside the six existing ones."
+
+- [x] **T2. Data model — DB migration and DDL**
+  - Extend `_init_db()` in `web/main.py` with four new `CREATE TABLE IF NOT EXISTS` blocks (in dependency order: `squads` → `squad_members` → `tl_evaluations` → `squad_competencia_closures`) followed by any `CREATE UNIQUE INDEX IF NOT EXISTS` statements.
+  - Schema source: `.agents/skills/tl-evaluation/SKILL.md` (authored in T1) is the authoritative schema reference; `docs/specs/avaliacao-tl-gabi.md`'s "Modelo de Dados" section provides the original column definitions. Key constraints from spec.md:
+    - `squads.tech_lead_user_email` — `NOT NULL UNIQUE` (1:1 TL/squad cardinality; database-enforced, not just form-level)
+    - `squad_members` — free-text only (`nome`, `papel`, `senioridade`, `fornecedor`, `active`); no `user_email` column; no FK to `team_members`/`users`
+    - `tl_evaluations` — one row per (`squad_member_id`, `competencia`), upsert on re-confirmation; `status = "confirmado"`; stores score and paragraph per dimension
+    - `squad_competencia_closures` — one row per (`squad_id`, `competencia`); `closed_at`, `closed_by` columns
+  - Precondition: T1 completed (skill provides the authoritative column list and index definitions).
+
+- [x] **T3. Repositories — squad and TL evaluation**
+  - Create `web/repositories/squad_repository.py` exposing:
+    - Admin CRUD: `create_squad(nome, tech_lead_user_email)`, `list_squads()`, `update_squad(id, fields)` (rename, reassign `tech_lead_user_email`)
+    - Admin read: `list_squad_members_admin(squad_id)` — all members, active and deactivated
+    - TL ownership: `is_squad_tl(user_email, squad_id) -> bool` — computes `squads.tech_lead_user_email == user_email`; never a stored flag; used as auth guard in every TL-scoped endpoint
+    - TL squads: `list_tl_squads(user_email)` — squads where the caller is `tech_lead_user_email`
+    - TL membership CRUD: `create_member(squad_id, nome, papel, senioridade, fornecedor)`, `list_members(squad_id)`, `update_member(member_id, fields)` (edit fields or toggle `active`)
+  - Create `web/repositories/tl_evaluation_repository.py` exposing:
+    - `upsert_evaluation(squad_member_id, competencia, scores, paragraphs, confirmed_by)` — creates or updates the `tl_evaluations` row; closing-state guard: if a `squad_competencia_closures` row exists for that (`squad_id`, `competencia`), upsert first deletes it (reopening the competência)
+    - `list_evaluations(squad_id, competencia)` — confirmed evaluations for the given squad/competência
+    - `get_historico(squad_id)` — confirmed evaluations for all prior competências (not the current one), including members no longer active
+    - `close_competencia(squad_id, competencia, closed_by)` — inserts into `squad_competencia_closures`
+    - `get_closure(squad_id, competencia)` — returns the closure row or `None`
+  - Imports `_db` from `web/db.py` (following the pattern established by T3 in spec 001).
+  - Precondition: T2 completed (tables must exist before any repository is exercised).
+
+- [x] **T4. TL evaluation engine**
+  - Create `web/tl_evaluation_engine.py` — encodes all inherited business rules as static data (system prompt and tool schemas) passed to the Claude Messages API; this module is the **first LLM-backed module in GABI**. It must remain as testable as the deterministic engines (`gabi_engine.py`, `client_evaluation_engine.py`): the system prompt, tool schemas, and message-assembly logic are all pure functions/data with no network I/O.
+    - Exports: `build_system_prompt() -> str`, `get_tools() -> list[dict]` (two tool schemas: `ask_question` — single clarifying question targeting Gate A or Gate B gap; `propose_evaluation` — score 1–5 and paragraph per dimension), `build_chat_request(messages: list[dict]) -> dict` (assembles the complete API request body without sending it).
+  - Create `web/core/anthropic_client.py` — thin client module (same architectural role as `web/core/oracle.py`):
+    - Exports a single `complete(request: dict) -> dict` function that sends the request to the Anthropic Messages API and returns the raw response.
+    - Reads `ANTHROPIC_API_KEY` from the environment; raises a clear `RuntimeError` if the variable is not set.
+    - All unit tests for `tl_evaluation_engine.py` mock this module at its boundary — the engine itself is tested without a live network call.
+  - Create `tests/test_tl_evaluation_engine.py` — unit tests (no network calls) covering: Gate A trigger (converging toward score 5 without a stated fact → response must be `ask_question`); Gate B trigger (strong generic claim without example → response must be `ask_question`); sufficient evidence → response must be `propose_evaluation`; paragraph voice rule (no third-person narration markers in any `propose_evaluation` paragraph field); tool-schema shape (required fields present in both schemas).
+  - Add `ANTHROPIC_API_KEY` to `web/.env.example` (or equivalent env-var documentation file) alongside `SECRET_KEY` and `ADMIN_EMAIL`. Do not commit any actual key value.
+  - Precondition: T1 completed (skill provides the business rules — Gates A/B, score scale, dimensions, tone/voice rule — to encode in the system prompt).
+
+- [x] **T5. PDF generation module**
+  - Create `web/tl_evaluation_pdf.py` — ported from the Cowork skill's `generate_pdf.py` (weasyprint-based); reuses the same layout logic and auto-install-dependency pattern.
+    - Exports: `generate_squad_pdf(squad_name: str, competencia: str, evaluations: list[dict]) -> bytes` — accepts the confirmed evaluations list for a squad/competência (returned by `tl_evaluation_repository.list_evaluations`) and returns the PDF as bytes for streaming to the HTTP response.
+    - The `evaluations` list items use `squad_members.nome` as the professional identifier (not any user account).
+    - WeasyPrint dependency follows the existing auto-install pattern already used in the codebase (see the Cowork skill's script); do not add it to `requirements.txt` statically if that pattern is not used elsewhere.
+  - Precondition: T3 completed (the evaluation list shape used by the PDF module comes from `tl_evaluation_repository.list_evaluations`).
+
+- [x] **T6. Admin squad endpoints and tests**
+  - Add to `web/main.py` (admin JWT required on all routes in this task):
+    - `POST /api/admin/squads` — creates a squad; validates that `tech_lead_user_email` references an existing `team_members`/`users` row (`422` if not — the backend validates independently of the UI selector); returns `201` with the new squad.
+    - `GET /api/admin/squads` — lists all squads.
+    - `PUT /api/admin/squads/{id}` — renames and/or reassigns `tech_lead_user_email`; same `422` validation on the email; when `tech_lead_user_email` changes, the previous TL immediately loses access (no additional record to update — `is_squad_tl()` is computed at request time).
+    - `GET /api/admin/squads/{id}/members` — read-only listing of all members (active and deactivated) of a squad, for admin oversight; no `POST`/`PATCH` counterpart exists under this path — write stays exclusively on the TL-scoped routes (T7); attempting to write returns `404` (route does not exist).
+    - `403` for any non-admin user on all four routes.
+  - Create `tests/test_tl_squads.py` — integration tests (FastAPI `TestClient`, in-memory SQLite) covering: squad creation (valid TL email, non-existent TL email → `422`, non-admin → `403`), squad list, squad update (valid reassignment, non-existent email → `422`), admin member listing (`GET` returns all members including deactivated, non-admin → `403`), `POST`/`PATCH` under `/api/admin/squads/*/members` returns `404`.
+  - Precondition: T3 completed (squad repository must be in place).
+
+- [x] **T7. TL squad, membership, evaluation, and closure endpoints**
+  - Add to `web/main.py` (TL ownership or `is_admin` required on all routes, unless noted):
+    - `GET /api/tl/squads` — squads where the current user is `tech_lead`; user JWT required.
+    - `POST /api/tl/squads/{squad_id}/members` — creates a member (`nome`, `papel`, `senioridade`, `fornecedor`); no `user_email` accepted or stored; `403` when caller is neither the squad's TL nor admin.
+    - `GET /api/tl/squads/{squad_id}/members` — lists active members; `403` when not TL/admin.
+    - `PATCH /api/tl/squads/{squad_id}/members/{member_id}` — edits fields or deactivates/reactivates; deactivated members no longer appear in the pending evaluation list but their `tl_evaluations` rows remain queryable; `403` when not TL/admin.
+    - `GET /api/tl/squads/{squad_id}/historico` — prior competências' confirmed evaluations, including members no longer active; `403` when not TL/admin.
+    - `POST /api/tl-evaluations/chat` — stateless chat turn; receives `{squad_id, competencia, squad_member_id, messages[]}` (full message history per turn — server is stateless); calls `tl_evaluation_engine` to build the request and `anthropic_client.complete()` to execute it; returns the next structured AI turn (`ask_question` or `propose_evaluation`); `403` when not TL/admin.
+    - `POST /api/tl-evaluations` — persists a confirmed evaluation (one `squad_member_id`, one `competencia`); upserts via repository (re-confirming an existing row also deletes the closure row if present); `403` when not TL/admin.
+    - `GET /api/tl-evaluations?squad_id=&competencia=` — lists confirmed evaluations for the given squad/competência; `403` when not TL/admin.
+    - `POST /api/tl-evaluations/{squad_id}/{competencia}/close` — records a `squad_competencia_closures` row; `403` when not TL/admin. (UX flow delegated to T10.)
+    - `GET /api/tl-evaluations/{squad_id}/{competencia}/pdf` — streams the generated PDF; requires a `squad_competencia_closures` row to exist (`404` otherwise, regardless of how many evaluations are confirmed); calls `tl_evaluation_pdf.generate_squad_pdf()`; `403` when not TL/admin.
+    - Non-admin, non-TL user on any `/api/tl/squads/{squad_id}/*` or `/api/tl-evaluations*` endpoint scoped to that squad → `403`.
+  - Extend `tests/test_tl_squads.py` with: TL squads listing (own squads only, non-TL user gets empty list), member CRUD (create, list, patch-deactivate, deactivated excluded from active list), historico (prior competências included, current excluded), chat turn (valid request returns structured turn; non-TL non-admin → `403`), evaluation confirmation (upsert; second confirmation updates, does not duplicate), evaluation list, close endpoint (creates closure row; re-confirming after closure deletes closure row), PDF endpoint (`404` when no closure, `200` PDF bytes when closure exists, `403` for non-TL non-admin).
+  - Precondition: T3, T4, T5, T6 completed (repositories, engine, PDF module, and admin squad routes must all be in place).
+
+- [x] **T8. Frontend types and TL evaluation service**
+  - Add to `frontend/src/types/index.ts` the following interfaces:
+    - `Squad` — `{ id: number; nome: string; techLeadUserEmail: string }`
+    - `SquadMember` — `{ id: number; squadId: number; nome: string; papel: string; senioridade: string; fornecedor: string; active: boolean }` — no `userEmail` field
+    - `TlEvaluation` — `{ id: number; squadMemberId: number; competencia: string; comportamentalNota: number; comportamentalParagrafo: string; tecnicaNota: number; tecnicaParagrafo: string; prazoNota: number; prazoParagrafo: string; status: "confirmado"; confirmedBy: string; confirmedAt: string }`
+    - `ChatMessage` — `{ role: "user" | "assistant"; content: string }`
+    - `ChatTurn` — discriminated union: `{ type: "ask_question"; question: string } | { type: "propose_evaluation"; comportamentalNota: number; comportamentalParagrafo: string; tecnicaNota: number; tecnicaParagrafo: string; prazoNota: number; prazoParagrafo: string }`
+    - `SquadCompetenciaStatus` — `{ closed: boolean; closedAt?: string; closedBy?: string }`
+  - Create `frontend/src/services/tl-evaluation.service.ts` exposing:
+    - Squad (admin): `createSquad(nome, techLeadUserEmail)`, `listSquads()`, `updateSquad(id, fields)`, `listSquadMembersAdmin(squadId)`
+    - Squad (TL): `listMySquads()`, `createMember(squadId, member)`, `listMembers(squadId)`, `updateMember(squadId, memberId, fields)`, `getHistorico(squadId)`
+    - Evaluations: `sendChatTurn(squadId, competencia, squadMemberId, messages)`, `confirmEvaluation(payload)`, `listEvaluations(squadId, competencia)`, `closeCompetencia(squadId, competencia)`, `downloadPdf(squadId, competencia)`
+  - Precondition: T2 completed (data model defines the shapes).
+
+- [x] **T9. Frontend admin squads screen**
+  - Create `frontend/src/pages/admin/sections/SquadsSection.tsx` — admin section component:
+    - Squad list table: columns Nome | Tech Lead (email) | Ações ("Editar" button).
+    - Squad creation form: `Input` for `nome`, `Select` or searchable combobox for `tech_lead_user_email` populated from existing users (never a free-text email input); "Criar Squad" button; `422` error displayed inline when the submitted email does not match any user (should not occur via the selector, but backend validates independently and the UI must surface the error).
+    - Squad edit dialog: same fields as creation form; "Salvar" and "Cancelar" buttons; the previous TL loses access immediately on save (no UI warning needed — the backend handles atomically).
+    - Read-only members view: expanding panel or drawer per squad listing all members (active and deactivated) returned by `listSquadMembersAdmin`; no create/edit/deactivate controls on this screen.
+    - TanStack Query invalidation after create and update.
+  - Extend `frontend/src/pages/admin/AdminPage.tsx` — add `case 'squads': return <SquadsSection />` to the section switch and a "Squads" navigation entry.
+  - Precondition: T6 completed (admin squad endpoints must be running); T8 completed (types and service must exist).
+
+- [x] **T10. Frontend TL squads screen**
+  - Create `frontend/src/pages/tl/TlSquadsPage.tsx` — TL-scoped page behind `ProtectedRoute` (not `AdminRoute`):
+    - Squad selector: list of squads where the current user is TL (`listMySquads()`); if the user is TL of no squad, display a centered empty state ("Nenhum squad atribuído a você.").
+    - **Membership management tab**: table of active members (nome, papel, senioridade, fornecedor); "Adicionar Membro" form (inline or drawer); `PATCH` for edit and deactivate/reactivate; deactivated members shown in a collapsed "Inativos" section. No `user_email` field anywhere.
+    - **Histórico tab**: prior competências' confirmed evaluations displayed per competência; read-only; includes members no longer active.
+    - **Avaliação tab** (per-competência, per-member flow):
+      - Competência selector (YYYY-MM format).
+      - Member checklist: active squad members, each showing their confirmation status for the selected competência (pending / confirmed).
+      - Chat panel for the selected member: sends `messages[]` to `POST /api/tl-evaluations/chat`; renders `ask_question` turns as AI messages with a text input for the TL's reply; renders `propose_evaluation` turns as a structured confirmation form (scores + paragraphs, editable before submission); "Confirmar" button calls `POST /api/tl-evaluations`.
+      - Monthly closure action: once all active members are confirmed for the competência, a primary "Encerrar Competência" button triggers `POST /api/tl-evaluations/{squad_id}/{competencia}/close`; if some members are still unconfirmed, the button shows a warning step — "N profissional(is) ainda não confirmado(s) — o PDF incluirá somente os M confirmados" — with "Encerrar assim mesmo" and "Cancelar" (mirroring the `ExportSection` / "Gerar assim mesmo" pattern from `AprovacoesSection.tsx`).
+      - After closure: "Baixar PDF" button calls `GET .../pdf` and triggers a browser download; if no closure row exists, the button is disabled with a tooltip ("Encerre a competência para habilitar o PDF").
+    - TanStack Query invalidation after member create/update, chat confirmation, closure, and PDF download.
+  - Extend `frontend/src/App.tsx` — add route `<Route path="/tl/squads" element={<TlSquadsPage />} />` inside the `ProtectedRoute` outlet, outside `AdminRoute`.
+  - Add "Meus Squads" navigation link to the user sidebar — locate the navigation component (within `Layout.tsx` or equivalent) and add the entry, visible to all authenticated users (a non-TL user will see the empty state from the squad selector).
+  - Precondition: T7 completed (all TL + evaluation endpoints must be running); T8 completed (types and service must exist).

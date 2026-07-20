@@ -25,6 +25,7 @@ import { AprovacoesSection } from './sections/AprovacoesSection'
 import { ConfiguracoesSection } from './sections/ConfiguracoesSection'
 import { TaskEntriesSection } from './sections/TaskEntriesSection'
 import { AvaliacaoClienteSection } from './sections/AvaliacaoClienteSection'
+import { SquadsSection } from './sections/SquadsSection'
 import axios from 'axios'
 
 const MONTHS_PT: Record<string, string> = {
@@ -576,6 +577,8 @@ export function AdminPage() {
         return <ConfiguracoesSection />
       case 'avaliacao-cliente':
         return <AvaliacaoClienteSection />
+      case 'squads':
+        return <SquadsSection />
       default:
         return <TaskSection />
     }

@@ -1,0 +1,435 @@
+---
+name: tl-evaluation
+description: >
+  Domain skill for the tl-evaluation bounded context in GABI — AI-assisted monthly squad evaluation chat (Gate A: score-5 evidence, Gate B: concrete examples), score 1–5, dimensions Comportamental, Técnica, Prazos de Entrega, stateless Claude Messages API integration, squad and member management, TL-ownership check, monthly closure, and PDF generation.
+metadata:
+  type: domain
+  domain: tl-evaluation
+  status: current
+---
+
+# TL Evaluation Domain Skill
+
+> **Maintaining this skill**
+>
+> Update it whenever the behavior of this domain changes purpose, keeping the skill
+> faithful to the implemented behavior. A divergence between skill and code with no
+> recorded decision is escalated to the human, not resolved on your own.
+
+## Domain overview
+
+The `tl-evaluation` domain is the seventh bounded context in GABI. A Tech Lead (TL) narrates each squad member's month in free text through an interactive chat interface; the engine (backed by the Claude Messages API with tool use) probes for missing evidence (Gate B) or external confirmation of superperformance (Gate A) until it proposes calibrated scores and a written paragraph per dimension (Comportamental, Técnica, Prazos de Entrega). Confirmed evaluations are persisted and exported as a squad PDF. Admins register squads and assign TLs; TLs own squad membership management.
+
+This is the **first LLM-backed domain in GABI** — every other domain's engine is pure deterministic logic. The Anthropic API call must be isolated in `web/core/anthropic_client.py`; the engine module (`web/tl_evaluation_engine.py`) must remain pure (no I/O), matching the existing pattern of `gabi_engine.py`.
+
+**This domain is read-only toward Team & Billing.** It queries `team_members`/`users` only to validate `tech_lead_user_email`, never to manage squad members (who have no GABI account).
+
+---
+
+## Business rules
+
+### Evaluation dimensions
+
+Every evaluation covers exactly three dimensions, always in this order:
+
+| Dimension | Key | Score range |
+|---|---|---|
+| Comportamental | `comportamental` | 1–5 |
+| Técnica | `tecnica` | 1–5 |
+| Prazos de Entrega | `prazo` | 1–5 |
+
+Score reference scale (calibration guidance encoded in the system prompt):
+- **1–2** — Insatisfatório
+- **3** — Regular
+- **4** — Bom
+- **5** — Excelente
+
+### Gate A — Score-5 evidence requirement
+
+Whenever an evaluation is converging toward a score of 5 in any dimension, the engine **must** issue an `ask_question` turn requesting a concrete fact of overperformance recognized by someone beyond the TL themselves (e.g., PO, another team, client). Without that externally recognized fact, the maximum proposable score is 4. A `propose_evaluation` turn with `nota = 5` in any dimension is only valid when the preceding conversation contains such a fact.
+
+### Gate B — Concrete example requirement
+
+Any generic positive claim without a concrete example ("é muito bom tecnicamente", "entrega sempre no prazo") **must** trigger an `ask_question` turn before the engine may issue a `propose_evaluation` turn. A `propose_evaluation` turn may only use evidence explicitly provided by the TL.
+
+### Generation rules (non-negotiable, encoded in the system prompt)
+
+- No invented examples — the engine never includes a fact not provided by the TL.
+- Paragraph openings must be concrete and specific (never a generic reusable phrase).
+- No superlative without supporting evidence.
+- Genericidade test: if a paragraph could describe any person in any month, it is too generic and must be rewritten.
+- Reduced observation window: when a member was absent for part of the month, the paragraph signals this with an asterisk and limits statements to the observed period.
+
+### Voice and tone rule
+
+Every paragraph in a `propose_evaluation` turn must be written in the TL's voice, with the **evaluated professional as the grammatical subject**. The following third-person narration markers are **forbidden** in any paragraph field: "TL", "relato", "reportou" (used to describe the TL as a character), and any equivalent construction that narrates the TL rather than the member's actions. This rule was the original trigger for introducing this domain.
+
+### Maximum clarifying question rounds
+
+The engine targets at most 2 clarifying question rounds per evaluation session (inherited from the Cowork skill). After sufficient evidence accumulates, it converges to a `propose_evaluation` turn.
+
+---
+
+## Chat flow and tool schemas
+
+### Stateless message-passing contract
+
+`POST /api/tl-evaluations/chat` is fully **stateless**: the client sends the complete message history on every HTTP turn. The server reconstructs context from the `messages[]` array and returns the next turn. No conversation state is persisted server-side before a TL confirms an evaluation.
+
+Request body:
+
+```json
+{
+  "squad_id": 1,
+  "competencia": "YYYY-MM",
+  "squad_member_id": 42,
+  "messages": [
+    { "role": "user", "content": "..." },
+    { "role": "assistant", "content": "..." }
+  ]
+}
+```
+
+### Tool schemas
+
+The engine passes exactly two tool schemas to the Claude Messages API. The API is constrained to respond using one of these tools — no free-text response is accepted.
+
+**`ask_question`** — issued when Gate A or Gate B conditions are unmet:
+
+```json
+{
+  "name": "ask_question",
+  "description": "Ask the TL a targeted clarifying question to gather missing evidence (Gate A or Gate B).",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string",
+        "description": "Single targeted clarifying question."
+      }
+    },
+    "required": ["question"]
+  }
+}
+```
+
+**`propose_evaluation`** — issued when sufficient evidence exists for all three dimensions:
+
+```json
+{
+  "name": "propose_evaluation",
+  "description": "Propose a calibrated score (1–5) and paragraph for each evaluation dimension.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "comportamental_nota":    { "type": "integer", "minimum": 1, "maximum": 5 },
+      "comportamental_paragrafo": { "type": "string" },
+      "tecnica_nota":           { "type": "integer", "minimum": 1, "maximum": 5 },
+      "tecnica_paragrafo":      { "type": "string" },
+      "prazo_nota":             { "type": "integer", "minimum": 1, "maximum": 5 },
+      "prazo_paragrafo":        { "type": "string" },
+      "janela_reduzida":        { "type": "boolean" }
+    },
+    "required": [
+      "comportamental_nota", "comportamental_paragrafo",
+      "tecnica_nota",        "tecnica_paragrafo",
+      "prazo_nota",          "prazo_paragrafo",
+      "janela_reduzida"
+    ]
+  }
+}
+```
+
+---
+
+## Data model
+
+### Table: `squads`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PK AUTOINCREMENT | |
+| `nome` | TEXT | NOT NULL UNIQUE | Squad display name |
+| `tech_lead_user_email` | TEXT | NOT NULL UNIQUE | Logical FK → `team_members.user_email`; UNIQUE enforces the 1:1 TL/squad cardinality at the database level |
+| `created_at` | TIMESTAMP | NOT NULL DEFAULT `datetime('now')` | |
+
+### Table: `squad_members`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PK AUTOINCREMENT | |
+| `squad_id` | INTEGER | NOT NULL FK → `squads.id` | |
+| `nome` | TEXT | NOT NULL | Free-text name; no GABI account required |
+| `papel` | TEXT | NOT NULL | e.g. "Dev", "QA", "PO" — squad-scoped attribute, not billing profile |
+| `senioridade` | TEXT | NOT NULL | e.g. "Júnior", "Pleno", "Sênior" |
+| `fornecedor` | TEXT | NOT NULL | e.g. "DB1 Global Software" or any third-party supplier |
+| `ativo` | INTEGER | NOT NULL DEFAULT 1 | 1 = active, 0 = deactivated |
+| `created_at` | TIMESTAMP | NOT NULL DEFAULT `datetime('now')` | |
+| `removed_at` | TIMESTAMP | NULL | Set when deactivated; historical `tl_evaluations` rows are never deleted |
+
+`squad_members` has **no** `user_email` column and **no** FK to `team_members` or `users`. The evaluated person never authenticates into GABI.
+
+### Table: `tl_evaluations`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PK AUTOINCREMENT | |
+| `squad_id` | INTEGER | NOT NULL FK → `squads.id` | |
+| `squad_member_id` | INTEGER | NOT NULL FK → `squad_members.id` | |
+| `competencia` | TEXT | NOT NULL | `"YYYY-MM"` format |
+| `comportamental_nota` | INTEGER | NULL | Score 1–5 |
+| `comportamental_paragrafo` | TEXT | NULL | Written paragraph for this dimension |
+| `tecnica_nota` | INTEGER | NULL | Score 1–5 |
+| `tecnica_paragrafo` | TEXT | NULL | |
+| `prazo_nota` | INTEGER | NULL | Score 1–5 |
+| `prazo_paragrafo` | TEXT | NULL | |
+| `janela_reduzida` | INTEGER | NOT NULL DEFAULT 0 | 1 when the member was absent for part of the month |
+| `status` | TEXT | NOT NULL DEFAULT `'rascunho'` | `'rascunho'` or `'confirmado'` |
+| `confirmed_by` | TEXT | NULL | Email of the TL who confirmed |
+| `created_at` | TIMESTAMP | NOT NULL DEFAULT `datetime('now')` | |
+| `confirmed_at` | TIMESTAMP | NULL | Set on confirmation |
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tl_eval_member_competencia
+  ON tl_evaluations (squad_id, competencia, squad_member_id);
+```
+
+### Table: `squad_competencia_closures`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `squad_id` | INTEGER | NOT NULL FK → `squads.id` | |
+| `competencia` | TEXT | NOT NULL | `"YYYY-MM"` format |
+| `closed_at` | TIMESTAMP | NOT NULL DEFAULT `datetime('now')` | |
+| `closed_by` | TEXT | NOT NULL | Email of the TL who closed |
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sqc_closure
+  ON squad_competencia_closures (squad_id, competencia);
+```
+
+---
+
+## REST endpoint contracts
+
+All admin endpoints require `is_admin = true`. Non-admin requests return `403`. Unauthenticated requests return `401`. TL-scoped endpoints require TL ownership of `squad_id` (`is_squad_tl()` returns `true`) **or** `is_admin = true` — unless explicitly noted.
+
+### Admin squad endpoints
+
+#### `POST /api/admin/squads`
+
+**Auth**: admin JWT
+**Request body**: `{ "nome": "...", "tech_lead_user_email": "..." }`
+
+| Response | Condition |
+|---|---|
+| `201` with created squad | Valid `nome` and `tech_lead_user_email` referencing an existing `team_members`/`users` row |
+| `422` | `tech_lead_user_email` does not correspond to an existing user |
+| `403` | Non-admin user |
+
+#### `GET /api/admin/squads`
+
+**Auth**: admin JWT
+**Response**: `200` list of all squads
+
+#### `PUT /api/admin/squads/{id}`
+
+**Auth**: admin JWT
+**Request body**: any subset of `{ "nome": "...", "tech_lead_user_email": "..." }`
+
+| Response | Condition |
+|---|---|
+| `200` | Updated squad |
+| `422` | `tech_lead_user_email` does not correspond to an existing user |
+| `404` | Squad not found |
+| `403` | Non-admin user |
+
+When `tech_lead_user_email` changes: the previous TL immediately loses access to all TL-scoped endpoints for that squad (no additional record to update — `is_squad_tl()` is computed at request time).
+
+#### `GET /api/admin/squads/{id}/members`
+
+**Auth**: admin JWT
+**Response**: `200` list of all members (active **and** deactivated) of the squad; `403` for non-admin; `404` if squad not found
+
+There is **no** `POST`/`PATCH` under `/api/admin/squads/*/members` — attempting those methods returns `404` (route does not exist). Write operations on membership are exclusively TL-scoped.
+
+### TL squad endpoints
+
+#### `GET /api/tl/squads`
+
+**Auth**: user JWT (any authenticated user)
+**Response**: `200` list of squads where `tech_lead_user_email == current_user.email`; returns `[]` if the user is TL of no squad
+
+#### `POST /api/tl/squads/{squad_id}/members`
+
+**Auth**: TL ownership or admin
+**Request body**: `{ "nome": "...", "papel": "...", "senioridade": "...", "fornecedor": "..." }` — no `user_email` accepted or stored
+
+| Response | Condition |
+|---|---|
+| `201` with created member | Valid body, caller is TL/admin |
+| `403` | Caller is neither TL of `squad_id` nor admin |
+
+#### `GET /api/tl/squads/{squad_id}/members`
+
+**Auth**: TL ownership or admin
+**Response**: `200` list of **active** members; `403` when not TL/admin
+
+#### `PATCH /api/tl/squads/{squad_id}/members/{member_id}`
+
+**Auth**: TL ownership or admin
+**Request body**: any subset of `{ "nome", "papel", "senioridade", "fornecedor", "ativo" }` — toggle `ativo` to `false` to deactivate
+
+Deactivated members no longer appear in `GET /api/tl/squads/{squad_id}/members` but their `tl_evaluations` rows remain queryable via the historico endpoint.
+
+| Response | Condition |
+|---|---|
+| `200` | Updated |
+| `403` | Not TL/admin |
+| `404` | Member not found |
+
+#### `GET /api/tl/squads/{squad_id}/historico`
+
+**Auth**: TL ownership or admin
+**Response**: `200` confirmed evaluations for all **prior** competências (not the current month), including members no longer active; `403` when not TL/admin
+
+### Evaluation endpoints
+
+#### `POST /api/tl-evaluations/chat`
+
+**Auth**: TL ownership or admin
+**Request body**: `{ "squad_id": int, "competencia": "YYYY-MM", "squad_member_id": int, "messages": [...] }`
+**Response**: the next structured AI turn — one of:
+- `{ "type": "ask_question", "question": "..." }`
+- `{ "type": "propose_evaluation", "comportamental_nota": int, "comportamental_paragrafo": "...", "tecnica_nota": int, "tecnica_paragrafo": "...", "prazo_nota": int, "prazo_paragrafo": "...", "janela_reduzida": bool }`
+
+| Response | Condition |
+|---|---|
+| `200` | Valid request |
+| `403` | Not TL/admin |
+
+The endpoint calls `tl_evaluation_engine.build_chat_request()` to assemble the request body and `anthropic_client.complete()` to execute the API call — never directly in the router.
+
+#### `POST /api/tl-evaluations`
+
+**Auth**: TL ownership or admin
+**Request body**: `{ "squad_id": int, "competencia": "YYYY-MM", "squad_member_id": int, "comportamental_nota": int, "comportamental_paragrafo": "...", "tecnica_nota": int, "tecnica_paragrafo": "...", "prazo_nota": int, "prazo_paragrafo": "...", "janela_reduzida": bool }`
+
+Behavior: **upsert** — creates or updates the `tl_evaluations` row for `(squad_id, competencia, squad_member_id)`; sets `status = "confirmado"`, `confirmed_by`, `confirmed_at`. If a `squad_competencia_closures` row exists for the same `(squad_id, competencia)`, it is **deleted** (the competência is reopened) before persisting the evaluation.
+
+| Response | Condition |
+|---|---|
+| `201` | Created or updated |
+| `403` | Not TL/admin |
+
+#### `GET /api/tl-evaluations`
+
+**Auth**: TL ownership or admin
+**Query params**: `squad_id` (required), `competencia` (required)
+**Response**: `200` list of confirmed evaluations for the given squad/competência; `403` when not TL/admin
+
+#### `POST /api/tl-evaluations/{squad_id}/{competencia}/close`
+
+**Auth**: TL ownership or admin
+**Response**: `201` with the created `squad_competencia_closures` row; `403` when not TL/admin
+
+A closed competência cannot receive new confirmations without first being reopened (any `POST /api/tl-evaluations` on a closed competência implicitly reopens it by deleting the closure row).
+
+#### `GET /api/tl-evaluations/{squad_id}/{competencia}/pdf`
+
+**Auth**: TL ownership or admin
+
+| Response | Condition |
+|---|---|
+| `200` | PDF bytes (`Content-Type: application/pdf`); a `squad_competencia_closures` row exists for `(squad_id, competencia)` |
+| `404` | No closure row exists, regardless of how many evaluations are confirmed |
+| `403` | Not TL/admin |
+
+---
+
+## TL-ownership check pattern
+
+```python
+# web/repositories/squad_repository.py
+def is_squad_tl(user_email: str, squad_id: int) -> bool:
+    """Returns True iff the squad's tech_lead_user_email matches user_email."""
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM squads WHERE id = ? AND tech_lead_user_email = ?",
+            (squad_id, user_email),
+        ).fetchone()
+    return row is not None
+```
+
+This function is **the sole authorization check** for TL-scoped access — never check a stored flag or JWT claim. It is computed at request time on every call; a TL reassignment is effective immediately with no cache to invalidate.
+
+Endpoint guard pattern (applied in every TL-scoped endpoint):
+
+```python
+if not (current_user.is_admin or squad_repository.is_squad_tl(current_user.email, squad_id)):
+    raise HTTPException(status_code=403)
+```
+
+---
+
+## Monthly closure flow
+
+The closure entity (`squad_competencia_closures`) represents an **explicit TL action** — it is not derived automatically from evaluation confirmations. A competência can be closed with some members still unconfirmed (the TL chooses to skip them).
+
+**UX decision (mirrors `AprovacoesSection.tsx` / billing `ExportSection`):**
+- If all active `squad_members` for the squad have a confirmed `tl_evaluations` row for the competência → "Encerrar Competência" is a single direct action (no confirmation step).
+- If some active members are still unconfirmed → the TL sees a warning step: "N profissional(is) ainda não confirmado(s) — o PDF incluirá somente os M confirmados", with "Encerrar assim mesmo" and "Cancelar".
+
+**Reopening:** any `POST /api/tl-evaluations` (re-confirmation of an already-confirmed evaluation) on a closed competência deletes the `squad_competencia_closures` row, implicitly reopening the competência. The TL must close again to re-enable PDF generation.
+
+---
+
+## PDF aggregation logic
+
+`web/tl_evaluation_pdf.py` — ported from the Cowork skill's `generate_pdf.py` (WeasyPrint-based).
+
+```python
+def generate_squad_pdf(
+    squad_name: str,
+    competencia: str,
+    evaluations: list[dict],
+) -> bytes:
+    """
+    Returns the PDF as bytes for HTTP streaming.
+    evaluations: list of confirmed tl_evaluations rows for (squad_id, competencia),
+                 each containing nome (from squad_members.nome), comportamental_nota,
+                 comportamental_paragrafo, tecnica_nota, tecnica_paragrafo,
+                 prazo_nota, prazo_paragrafo, janela_reduzida.
+    """
+```
+
+The `evaluations` list is provided by `tl_evaluation_repository.list_evaluations(squad_id, competencia)`. The professional identifier in the PDF is `squad_members.nome` — never a `user_email` or any other GABI account field.
+
+WeasyPrint is auto-installed at runtime following the same pattern already used by the Cowork skill's `generate_pdf.py` — it is not added to `requirements.txt` as a static dependency if that pattern is not already established in the project.
+
+---
+
+## Module layout
+
+| File | Role |
+|---|---|
+| `web/tl_evaluation_engine.py` | Pure engine — `build_system_prompt()`, `get_tools()`, `build_chat_request(messages)` |
+| `web/core/anthropic_client.py` | Thin LLM client — `complete(request: dict) -> dict`; reads `ANTHROPIC_API_KEY` |
+| `web/repositories/squad_repository.py` | Squad and member CRUD; `is_squad_tl()` |
+| `web/repositories/tl_evaluation_repository.py` | Evaluation persistence and history queries; closure management |
+| `web/tl_evaluation_pdf.py` | PDF generation (WeasyPrint) |
+| `tests/test_tl_evaluation_engine.py` | Unit tests for the pure engine (no network calls) |
+| `tests/test_tl_squads.py` | Integration tests for all endpoints (FastAPI TestClient, in-memory SQLite) |
+| `frontend/src/services/tl-evaluation.service.ts` | All API access functions for this domain |
+| `frontend/src/pages/admin/sections/SquadsSection.tsx` | Admin squad CRUD + TL assignment + read-only member view |
+| `frontend/src/pages/tl/TlSquadsPage.tsx` | TL-scoped page: membership, historico, chat, closure, PDF |
+
+---
+
+## Cross-domain dependencies
+
+- **Authentication** (`get_current_user()`, `is_admin`): used in all endpoint guards. TL-ownership check (`is_squad_tl()`) is domain-specific authorization logic within this unit, not a change to the Authentication domain.
+- **Team & Billing** (`team_members`/`users`): queried read-only to validate `tech_lead_user_email` on squad create/update (`422` if the email does not match an existing user row). No dependency for squad members.
+- **Client Evaluation**: no dependency in v1; a future comparative view (P2) would read `client_evaluations` read-only without modifying that domain.
+
+No existing domain table or function is modified by this domain.

@@ -7,6 +7,7 @@ import { SubmissionsPage } from './pages/submissions/SubmissionsPage'
 import { SubmissionDetailPage } from './pages/submissions/SubmissionDetailPage'
 import { AdminPage } from './pages/admin/AdminPage'
 import { MyEvaluationsPage } from './pages/my-evaluations/MyEvaluationsPage'
+import { TlSquadsPage } from './pages/tl/TlSquadsPage'
 import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute'
 import { useAuth } from './hooks/useAuth'
 
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/submissions" element={<SubmissionsPage />} />
           <Route path="/submissions/:id" element={<SubmissionDetailPage />} />
           <Route path="/minhas-avaliacoes" element={<MyEvaluationsPage />} />
+          <Route path="/tl/squads" element={<TlSquadsPage />} />
           <Route element={<AdminRoute />}>
             <Route path="/admin" element={<Navigate to="/admin/task" replace />} />
             <Route path="/admin/:section" element={<AdminPage />} />

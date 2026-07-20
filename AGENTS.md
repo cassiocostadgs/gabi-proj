@@ -91,7 +91,7 @@ New validation rules must be added as independent functions composed into `valid
 
 ## Business Domains
 
-Six bounded contexts identified in functional discovery:
+Seven bounded contexts identified in functional discovery:
 
 | Order | Domain | Key Responsibility |
 |-------|--------|--------------------|
@@ -101,6 +101,7 @@ Six bounded contexts identified in functional discovery:
 | 3 | **Submission Workflow** | GA submission lifecycle: pending → approved / rejected |
 | 4 | **Team & Billing** | Team profiles, billing rates, billing XLSX export |
 | 5 | **Client Evaluation** | MAG client evaluation ingest, admin review lifecycle (`rascunho → aprovado | rejeitado`), professional self-service history, and admin dashboard |
+| 6 | **TL Evaluation** | TL-driven squad evaluation chat flow (Gates A/B, score 1–5, dimensions), squad and membership management, monthly closure, and PDF generation |
 
 ---
 
