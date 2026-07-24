@@ -174,12 +174,96 @@ def get_tools() -> list[dict]:
     return list(_TOOLS)
 
 
-def build_chat_request(messages: list[dict]) -> dict:
-    """Assemble the complete Anthropic Messages API request body (no I/O)."""
+def _build_context_section(member_context: dict) -> str:
+    """Build the system-prompt section describing squad/member/month context.
+
+    `member_context` shape: {"squad_nome": ..., "membro_nome": ..., "senioridade": ...,
+    "competencia": ...}. All keys are optional; a missing one is simply omitted so the
+    section degrades gracefully if the caller cannot resolve part of the context.
+    """
+    lines = ["\n## Contexto da avaliação\n"]
+    if member_context.get("squad_nome"):
+        lines.append(f"Squad: {member_context['squad_nome']}")
+    if member_context.get("membro_nome"):
+        lines.append(f"Profissional avaliado: {member_context['membro_nome']}")
+    if member_context.get("senioridade"):
+        lines.append(f"Senioridade: {member_context['senioridade']}")
+    if member_context.get("competencia"):
+        lines.append(f"Competência (mês de referência): {member_context['competencia']}")
+    lines.append(
+        "\nEsses dados já são conhecidos pelo sistema. NUNCA pergunte ao TL sobre qual "
+        "profissional, squad ou mês está sendo avaliado — use o nome do profissional "
+        "acima diretamente ao se dirigir a ele ou ao gerar perguntas e parágrafos."
+    )
+    return "\n".join(lines)
+
+
+def _build_role_section(role: dict) -> str:
+    """Build the system-prompt section describing the evaluated member's role.
+
+    `role` matches the shape returned by tl_evaluation_role_repository.get_role():
+    {"nome": ..., "descricao": ...,
+     "responsabilidades": [{"descricao": ..., "principal": 0|1}, ...]}
+
+    Only *principal* responsibilities become a probing requirement (mirroring Gate
+    B): with 8-14 responsibilities per role in the real catalog, treating every one
+    as a mandatory question would blow past the 2-round budget. Non-principal
+    responsibilities are passed as context only, to help the model map what the TL
+    already said — they never trigger a question on their own.
+    """
+    principais = [r["descricao"] for r in role["responsabilidades"] if r["principal"]]
+    secundarias = [r["descricao"] for r in role["responsabilidades"] if not r["principal"]]
+
+    lines = [
+        "\n## Papel avaliado\n",
+        f"Papel: {role['nome']}",
+    ]
+    if role.get("descricao"):
+        lines.append(f"Descrição do papel: {role['descricao']}")
+
+    if principais:
+        lines.append(
+            "\nResponsabilidades PRINCIPAIS deste papel — trate a ausência de qualquer uma "
+            "delas no relato como lacuna (mesmo padrão do Gate B): use `ask_question` "
+            "perguntando especificamente sobre a responsabilidade não endereçada antes de "
+            "propor a avaliação."
+        )
+        lines.extend(f"- {desc}" for desc in principais)
+
+    if secundarias:
+        lines.append(
+            "\nDemais responsabilidades do papel — use apenas como contexto para mapear e "
+            "categorizar o que o TL já relatou; não exigem pergunta própria se não "
+            "mencionadas."
+        )
+        lines.extend(f"- {desc}" for desc in secundarias)
+
+    return "\n".join(lines)
+
+
+def build_chat_request(
+    messages: list[dict],
+    role: dict | None = None,
+    member_context: dict | None = None,
+) -> dict:
+    """Assemble the complete Anthropic Messages API request body (no I/O).
+
+    `role` — the evaluated member's catalog role (nome/descricao/responsabilidades),
+    or None if the member's role has no catalog entry.
+
+    `member_context` — squad nome, membro nome, senioridade and competência, or None.
+    Purely data-driven, no I/O: the caller resolves both from the database before
+    calling this function.
+    """
+    system = _SYSTEM_PROMPT
+    if member_context is not None:
+        system = system + _build_context_section(member_context)
+    if role is not None:
+        system = system + _build_role_section(role)
     return {
         "model": _CLAUDE_MODEL,
         "max_tokens": _MAX_TOKENS,
-        "system": _SYSTEM_PROMPT,
+        "system": system,
         "tools": _TOOLS,
         "tool_choice": {"type": "any"},
         "messages": messages,

@@ -97,11 +97,12 @@ jobs:
           ORACLE_PASSWORD: ${{ secrets.ORACLE_PASSWORD }}
           ORACLE_TASK_PROJECT: ${{ secrets.ORACLE_TASK_PROJECT }}
           MAG_EVAL_API_KEY: ${{ secrets.MAG_EVAL_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: ORACLE_HOST,ORACLE_PORT,ORACLE_SID,ORACLE_USER,ORACLE_PASSWORD,ORACLE_TASK_PROJECT,MAG_EVAL_API_KEY
+          envs: ORACLE_HOST,ORACLE_PORT,ORACLE_SID,ORACLE_USER,ORACLE_PASSWORD,ORACLE_TASK_PROJECT,MAG_EVAL_API_KEY,ANTHROPIC_API_KEY
           script: |
             set -e
             cd /opt/gabi
@@ -113,6 +114,7 @@ jobs:
               "ORACLE_PASSWORD=${ORACLE_PASSWORD}" \
               "ORACLE_TASK_PROJECT=${ORACLE_TASK_PROJECT}" \
               "MAG_EVAL_API_KEY=${MAG_EVAL_API_KEY}" \
+              "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}" \
               > web/.env
             git fetch git@github-gabi:tiagohlatki-db1/gabi.git main
             git reset --hard FETCH_HEAD

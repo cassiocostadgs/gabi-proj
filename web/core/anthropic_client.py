@@ -9,11 +9,15 @@ engine stays testable without a live network call.
 
 import json
 import os
+import ssl
 import urllib.error
 import urllib.request
 
+import certifi
+
 _API_URL = "https://api.anthropic.com/v1/messages"
 _API_VERSION = "2023-06-01"
+_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 
 def complete(request: dict) -> dict:
@@ -40,5 +44,5 @@ def complete(request: dict) -> dict:
         },
         method="POST",
     )
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, context=_SSL_CONTEXT) as resp:
         return json.loads(resp.read())

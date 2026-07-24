@@ -247,11 +247,27 @@ export interface Squad {
   techLeadUserEmail: string
 }
 
+export interface RoleResponsibility {
+  id: number
+  descricao: string
+  principal: boolean
+  ordem: number
+}
+
+export interface Role {
+  id: number
+  nome: string
+  descricao: string | null
+  categoria: string | null
+  responsabilidades: RoleResponsibility[]
+}
+
 export interface SquadMember {
   id: number
   squadId: number
   nome: string
-  papel: string
+  roleId: number
+  papel: string // role display name (joined from the catalog)
   senioridade: string
   fornecedor: string
   active: boolean

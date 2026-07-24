@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent, type ReactNode } from 'react'
+import { useState, useEffect, useMemo, type FormEvent, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Layers,
@@ -12,8 +12,15 @@ import {
 } from 'lucide-react'
 import { Layout } from '../../components/Layout'
 import { Spinner } from '../../components/Spinner'
+import { SelectField } from '../../components/ui/select'
+import {
+  EvaluationRosterCard,
+  type EvaluationRosterPerson,
+} from '../../components/evaluation/EvaluationRosterCard'
 import { tlEvaluationService } from '../../services/tl-evaluation.service'
-import { competenciaLabel } from '../../lib/format'
+import { currentCompetencia } from '../../lib/format'
+import { RANGE_OPTIONS, type RangeFilter } from '../../lib/evaluationRange'
+import { toEvaluationScoreRecord } from './historico-adapter'
 import axios from 'axios'
 import type { SquadMember, TlEvaluation } from '../../types'
 import { AvaliacaoTab } from './AvaliacaoTab'
@@ -24,14 +31,14 @@ function MembrosTab({ squadId }: Readonly<{ squadId: number }>) {
   const qc = useQueryClient()
   const [showAddForm, setShowAddForm] = useState(false)
   const [addNome, setAddNome] = useState('')
-  const [addPapel, setAddPapel] = useState('')
+  const [addRoleId, setAddRoleId] = useState('')
   const [addSenioridade, setAddSenioridade] = useState('')
   const [addFornecedor, setAddFornecedor] = useState('')
   const [addError, setAddError] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editFields, setEditFields] = useState({
     nome: '',
-    papel: '',
+    roleId: '',
     senioridade: '',
     fornecedor: '',
   })
@@ -42,17 +49,24 @@ function MembrosTab({ squadId }: Readonly<{ squadId: number }>) {
     queryFn: () => tlEvaluationService.listMembers(squadId, true),
   })
 
+  const { data: roles = [] } = useQuery({
+    queryKey: ['tl-evaluation-roles'],
+    queryFn: tlEvaluationService.listRoles,
+  })
+
+  const roleOptions = roles.map((r) => ({ value: String(r.id), label: r.nome }))
+
   const createMutation = useMutation({
     mutationFn: () =>
       tlEvaluationService.createMember(squadId, {
         nome: addNome,
-        papel: addPapel,
+        roleId: Number(addRoleId),
         senioridade: addSenioridade,
         fornecedor: addFornecedor,
       }),
     onSuccess: () => {
       setAddNome('')
-      setAddPapel('')
+      setAddRoleId('')
       setAddSenioridade('')
       setAddFornecedor('')
       setAddError('')
@@ -93,7 +107,7 @@ function MembrosTab({ squadId }: Readonly<{ squadId: number }>) {
     setEditingId(member.id)
     setEditFields({
       nome: member.nome,
-      papel: member.papel,
+      roleId: String(member.roleId),
       senioridade: member.senioridade,
       fornecedor: member.fornecedor,
     })
@@ -101,6 +115,18 @@ function MembrosTab({ squadId }: Readonly<{ squadId: number }>) {
 
   function updateEditField(field: keyof typeof editFields, value: string) {
     setEditFields((prev) => ({ ...prev, [field]: value }))
+  }
+
+  function submitEdit(memberId: number) {
+    updateMutation.mutate({
+      memberId,
+      fields: {
+        nome: editFields.nome,
+        roleId: Number(editFields.roleId),
+        senioridade: editFields.senioridade,
+        fornecedor: editFields.fornecedor,
+      },
+    })
   }
 
   let activeMembersBody: ReactNode
@@ -127,7 +153,7 @@ function MembrosTab({ squadId }: Readonly<{ squadId: number }>) {
             {editingId === member.id ? (
               <div className="p-3">
                 <div className="grid grid-cols-2 gap-2 mb-2">
-                  {(['nome', 'papel', 'senioridade', 'fornecedor'] as const).map((field) => (
+                  {(['nome', 'senioridade', 'fornecedor'] as const).map((field) => (
                     <div key={field}>
                       <label className="block text-xs text-slate-500 mb-1 capitalize">
                         {field}
@@ -136,10 +162,25 @@ function MembrosTab({ squadId }: Readonly<{ squadId: number }>) {
                         type="text"
                         value={editFields[field]}
                         onChange={(e) => updateEditField(field, e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-600 rounded-lg px-2.5 py-1.5 text-sm text-slate-50 outline-none focus:border-blue-500 transition-colors"
+                        className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-50 outline-none focus:border-blue-500 transition-colors"
                       />
                     </div>
                   ))}
+                  <div>
+                    <label
+                      htmlFor="edit-member-papel"
+                      className="block text-xs text-slate-500 mb-1"
+                    >
+                      Papel
+                    </label>
+                    <SelectField
+                      id="edit-member-papel"
+                      value={editFields.roleId}
+                      onValueChange={(v) => updateEditField('roleId', v)}
+                      options={roleOptions}
+                      placeholder="Selecione..."
+                    />
+                  </div>
                 </div>
                 <div className="flex gap-2 justify-end">
                   <button
@@ -149,9 +190,7 @@ function MembrosTab({ squadId }: Readonly<{ squadId: number }>) {
                     Cancelar
                   </button>
                   <button
-                    onClick={() =>
-                      updateMutation.mutate({ memberId: member.id, fields: editFields })
-                    }
+                    onClick={() => submitEdit(member.id)}
                     disabled={updateMutation.isPending}
                     className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-colors flex items-center gap-1.5"
                   >
@@ -230,21 +269,20 @@ function MembrosTab({ squadId }: Readonly<{ squadId: number }>) {
                 onChange={(e) => setAddNome(e.target.value)}
                 placeholder="Nome completo"
                 required
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-2.5 py-1.5 text-sm text-slate-50 placeholder-slate-600 outline-none focus:border-blue-500 transition-colors"
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-50 placeholder-slate-600 outline-none focus:border-blue-500 transition-colors"
               />
             </div>
             <div>
               <label htmlFor="add-member-papel" className="block text-xs text-slate-500 mb-1">
                 Papel
               </label>
-              <input
+              <SelectField
                 id="add-member-papel"
-                type="text"
-                value={addPapel}
-                onChange={(e) => setAddPapel(e.target.value)}
-                placeholder="ex: Dev, QA, PO"
+                value={addRoleId}
+                onValueChange={setAddRoleId}
+                options={roleOptions}
+                placeholder="Selecione o papel..."
                 required
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-2.5 py-1.5 text-sm text-slate-50 placeholder-slate-600 outline-none focus:border-blue-500 transition-colors"
               />
             </div>
             <div>
@@ -258,7 +296,7 @@ function MembrosTab({ squadId }: Readonly<{ squadId: number }>) {
                 onChange={(e) => setAddSenioridade(e.target.value)}
                 placeholder="ex: Pleno, Sênior"
                 required
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-2.5 py-1.5 text-sm text-slate-50 placeholder-slate-600 outline-none focus:border-blue-500 transition-colors"
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-50 placeholder-slate-600 outline-none focus:border-blue-500 transition-colors"
               />
             </div>
             <div>
@@ -272,7 +310,7 @@ function MembrosTab({ squadId }: Readonly<{ squadId: number }>) {
                 onChange={(e) => setAddFornecedor(e.target.value)}
                 placeholder="ex: DB1, Acme"
                 required
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-2.5 py-1.5 text-sm text-slate-50 placeholder-slate-600 outline-none focus:border-blue-500 transition-colors"
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-50 placeholder-slate-600 outline-none focus:border-blue-500 transition-colors"
               />
             </div>
           </div>
@@ -287,7 +325,7 @@ function MembrosTab({ squadId }: Readonly<{ squadId: number }>) {
             </button>
             <button
               type="submit"
-              disabled={createMutation.isPending}
+              disabled={createMutation.isPending || !addRoleId}
               className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-colors flex items-center gap-1.5"
             >
               {createMutation.isPending ? <Spinner size="sm" /> : <Plus size={12} />}
@@ -347,10 +385,46 @@ function MembrosTab({ squadId }: Readonly<{ squadId: number }>) {
 // ── Histórico tab ──────────────────────────────────────────────────────────────
 
 function HistoricoTab({ squadId }: Readonly<{ squadId: number }>) {
-  const { data: historico = [], isLoading } = useQuery({
+  const [search, setSearch] = useState('')
+  const [range, setRange] = useState<RangeFilter>('12')
+
+  const { data: historico = [], isLoading: isLoadingHistorico } = useQuery({
     queryKey: ['tl-historico', squadId],
     queryFn: () => tlEvaluationService.getHistorico(squadId),
   })
+
+  const currentComp = currentCompetencia()
+  const { data: currentEvaluations = [], isLoading: isLoadingCurrent } = useQuery({
+    queryKey: ['tl-evaluations', squadId, currentComp],
+    queryFn: () => tlEvaluationService.listEvaluations(squadId, currentComp),
+  })
+
+  const isLoading = isLoadingHistorico || isLoadingCurrent
+
+  // Group by member — one roster card per squad member, showing their trend across months.
+  const roster = useMemo<EvaluationRosterPerson[]>(() => {
+    const byMember = new Map<number, TlEvaluation[]>()
+    ;[...historico, ...currentEvaluations].forEach((ev) => {
+      const list = byMember.get(ev.squadMemberId) ?? []
+      list.push(ev)
+      byMember.set(ev.squadMemberId, list)
+    })
+    return [...byMember.entries()]
+      .map(([squadMemberId, evaluations]) => {
+        const sorted = [...evaluations].sort((a, b) => a.competencia.localeCompare(b.competencia))
+        return {
+          key: squadMemberId,
+          name: sorted[sorted.length - 1].nome ?? `Membro #${squadMemberId}`,
+          history: sorted.map(toEvaluationScoreRecord),
+        }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [historico, currentEvaluations])
+
+  const filteredRoster = useMemo(
+    () => roster.filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase())),
+    [roster, search]
+  )
 
   if (isLoading) {
     return (
@@ -360,7 +434,7 @@ function HistoricoTab({ squadId }: Readonly<{ squadId: number }>) {
     )
   }
 
-  if (historico.length === 0) {
+  if (roster.length === 0) {
     return (
       <p className="text-xs text-slate-600 text-center py-10">
         Nenhuma avaliação anterior registrada.
@@ -368,59 +442,48 @@ function HistoricoTab({ squadId }: Readonly<{ squadId: number }>) {
     )
   }
 
-  // Group by competência
-  const byCompetencia = historico.reduce<Record<string, TlEvaluation[]>>((acc, ev) => {
-    const key = ev.competencia
-    if (!acc[key]) acc[key] = []
-    acc[key].push(ev)
-    return acc
-  }, {})
-
-  const sorted = Object.keys(byCompetencia).sort((a, b) => b.localeCompare(a))
-
   return (
-    <div className="max-w-2xl space-y-6">
-      {sorted.map((comp) => (
-        <div key={comp}>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
-            {competenciaLabel(comp)}
-          </p>
-          <div className="space-y-2">
-            {byCompetencia[comp].map((ev) => (
-              <div key={ev.id} className="bg-slate-800 border border-slate-700 rounded-xl p-4">
-                <p className="text-sm font-semibold text-slate-200 mb-3">
-                  {ev.nome ?? `Membro #${ev.squadMemberId}`}
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {[
-                    {
-                      label: 'Comportamental',
-                      nota: ev.comportamentalNota,
-                      paragrafo: ev.comportamentalParagrafo,
-                    },
-                    { label: 'Técnica', nota: ev.tecnicaNota, paragrafo: ev.tecnicaParagrafo },
-                    {
-                      label: 'Prazos de Entrega',
-                      nota: ev.prazoNota,
-                      paragrafo: ev.prazoParagrafo,
-                    },
-                  ].map(({ label, nota, paragrafo }) => (
-                    <div key={label} className="bg-slate-900 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-xs font-semibold text-slate-400">{label}</p>
-                        <span className="w-7 h-7 rounded-full bg-blue-800/40 border border-blue-700/40 flex items-center justify-center text-xs font-bold text-blue-300">
-                          {nota}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-400 leading-relaxed">{paragrafo}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar profissional..."
+          className="w-56 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500 transition-colors"
+        />
+        <div className="flex gap-1 bg-slate-800/50 border border-slate-700 rounded-lg p-1">
+          {RANGE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setRange(opt.value)}
+              className={`text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors ${
+                range === opt.value
+                  ? 'bg-slate-700 text-slate-100'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
-      ))}
+      </div>
+
+      {filteredRoster.length === 0 ? (
+        <p className="text-sm text-slate-500 text-center py-8">Nenhum profissional encontrado.</p>
+      ) : (
+        <div className="space-y-2">
+          {filteredRoster.map((person, index) => (
+            <EvaluationRosterCard
+              key={person.key}
+              person={person}
+              range={range}
+              defaultOpen={index === 0}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

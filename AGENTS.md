@@ -237,7 +237,7 @@ Use the `/commit` skill to execute this flow. WIP commits (without push) do not 
 
 **Deploy steps**: GitHub Actions copies `frontend/dist/` to EC2, pulls `main`, installs Python deps, runs `systemctl restart gabi`, reloads nginx.
 
-**Secrets** (GitHub Actions): `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SID`, `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_TASK_PROJECT`, `MAG_EVAL_API_KEY`.
+**Secrets** (GitHub Actions): `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SID`, `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_TASK_PROJECT`, `MAG_EVAL_API_KEY`, `ANTHROPIC_API_KEY` (dedicated Workspace key under DB1's Anthropic org — never an individual's Pro/Max key; used by the TL Evaluation domain, see `web/core/anthropic_client.py`).
 
 ---
 

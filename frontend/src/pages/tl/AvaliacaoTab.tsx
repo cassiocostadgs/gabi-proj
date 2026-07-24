@@ -336,7 +336,16 @@ function useAvaliacaoTabController(squadId: number) {
           error: null,
         })
       } else {
+        const existing = chatByMember[selectedMemberId] ?? EMPTY_CHAT
         patchChat(selectedMemberId, {
+          messages: [
+            ...existing.messages,
+            {
+              role: 'assistant',
+              content:
+                'Preparei uma proposta de avaliação com base no que você relatou — revise as notas e parágrafos abaixo.',
+            },
+          ],
           proposal: {
             comportamentalNota: turn.comportamentalNota,
             comportamentalParagrafo: turn.comportamentalParagrafo,

@@ -387,23 +387,42 @@ The closure entity (`squad_competencia_closures`) represents an **explicit TL ac
 ## PDF aggregation logic
 
 `web/tl_evaluation_pdf.py` — ported from the Cowork skill's `generate_pdf.py` (WeasyPrint-based).
+Full parity with the original skill: three sections per squad PDF.
 
 ```python
 def generate_squad_pdf(
     squad_name: str,
     competencia: str,
     evaluations: list[dict],
+    *,
+    tech_lead_nome: str,
+    historico: list[dict] = (),
 ) -> bytes:
     """
     Returns the PDF as bytes for HTTP streaming.
     evaluations: list of confirmed tl_evaluations rows for (squad_id, competencia),
-                 each containing nome (from squad_members.nome), comportamental_nota,
+                 each containing nome/senioridade (from squad_members),
+                 papel_nome (from tl_evaluation_roles), comportamental_nota,
                  comportamental_paragrafo, tecnica_nota, tecnica_paragrafo,
                  prazo_nota, prazo_paragrafo, janela_reduzida.
+    tech_lead_nome: display name for the squad's tech_lead_user_email, resolved by the
+                    caller (team_members.nome_completo, falling back to the raw email).
+    historico: confirmed evaluations for prior competências (tl_evaluation_repository.
+               get_historico), used to render each member's "Evolução histórica" chart.
     """
 ```
 
-The `evaluations` list is provided by `tl_evaluation_repository.list_evaluations(squad_id, competencia)`. The professional identifier in the PDF is `squad_members.nome` — never a `user_email` or any other GABI account field.
+The `evaluations` list is provided by `tl_evaluation_repository.list_evaluations(squad_id, competencia)`
+(joined with `tl_evaluation_roles` for `papel_nome`). The professional identifier in the PDF
+is `squad_members.nome` — never a `user_email` or any other GABI account field.
+
+Document structure:
+1. **Referência** — static methodology section (dimensions explained + 1–5 score-scale table).
+2. **Avaliações individuais** — one card per member: cargo subtitle ("papel · senioridade"),
+   current-month notas/paragraphs, and an inline-SVG "Evolução histórica" sparkline (last 6
+   competências, current month merged in) when ≥2 historical data points exist.
+3. **Panorama da squad** — matrix of members × dimensions with a color legend, plus a
+   "Distribuição por dimensão" stacked bar per dimension.
 
 WeasyPrint is auto-installed at runtime following the same pattern already used by the Cowork skill's `generate_pdf.py` — it is not added to `requirements.txt` as a static dependency if that pattern is not already established in the project.
 

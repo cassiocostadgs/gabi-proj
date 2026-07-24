@@ -17,6 +17,7 @@ import {
   EyeOff,
   Star,
   Layers,
+  IdCard,
 } from 'lucide-react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
@@ -49,6 +50,7 @@ const ADMIN_NAV = [
   { to: '/admin/approvals', icon: ClipboardList, label: 'Aprovações' },
   { to: '/admin/avaliacao-cliente', icon: Star, label: 'Avaliações MAG' },
   { to: '/admin/squads', icon: Layers, label: 'Squads' },
+  { to: '/admin/tl-roles', icon: IdCard, label: 'Papéis' },
   { to: '/admin/settings', icon: Settings2, label: 'Configurações' },
 ]
 

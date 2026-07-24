@@ -191,6 +191,7 @@ export function EvaluationDrawer({
   onClose,
 }: Readonly<Props>) {
   const threadEndRef = useRef<HTMLDivElement>(null)
+  const proposalRef = useRef<HTMLDivElement>(null)
   const messageKeys = useRef(new WeakMap<ChatMessage, string>()).current
 
   function keyForMessage(msg: ChatMessage): string {
@@ -209,7 +210,15 @@ export function EvaluationDrawer({
   }, [onClose])
 
   useEffect(() => {
-    threadEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // A freshly generated proposal is a tall multi-section card — scrolling only to the
+    // trailing marker below it clamps to the very bottom and can leave its header and
+    // paragraphs (the part the TL actually needs to review) above the visible viewport.
+    // Scroll to its top instead so it's unmistakably visible the moment it appears.
+    if (chat.proposal) {
+      proposalRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } else {
+      threadEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [chat.messages.length, chat.proposal])
 
   // Reopening a confirmed evaluation immediately drafts a proposal (see
@@ -293,12 +302,14 @@ export function EvaluationDrawer({
           </div>
         )}
         {chat.proposal && (
-          <ProposalCard
-            proposal={chat.proposal}
-            isConfirming={isConfirming}
-            onUpdate={onUpdateProposal}
-            onConfirm={onConfirm}
-          />
+          <div ref={proposalRef} className="self-stretch">
+            <ProposalCard
+              proposal={chat.proposal}
+              isConfirming={isConfirming}
+              onUpdate={onUpdateProposal}
+              onConfirm={onConfirm}
+            />
+          </div>
         )}
         <div ref={threadEndRef} />
       </>

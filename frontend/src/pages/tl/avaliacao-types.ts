@@ -37,9 +37,12 @@ export const DIMENSIONS: Array<{
 
 // Heuristic mirror of the backend's Gate A prompt (web/tl_evaluation_engine.py) — when the
 // assistant's question is asking for external recognition, offer quick-reply chips instead of
-// forcing free text for what is effectively a yes/no answer.
+// forcing free text for what is effectively a yes/no answer. Excludes open-ended follow-ups
+// ("quem reconheceu?", "de que forma?") where a yes/no chip would not make sense as a reply.
+const OPEN_ENDED_MARKERS = /\b(quem|como|qual|quais|quando|onde|de que forma|por que|porque)\b/i
+
 export function isGateAQuestion(question: string): boolean {
-  return /reconhec/i.test(question) && question.includes('?')
+  return /reconhec/i.test(question) && question.includes('?') && !OPEN_ENDED_MARKERS.test(question)
 }
 
 export const GATE_A_CHIPS = ['Sim, foi reconhecido', 'Não, é apenas minha percepção']

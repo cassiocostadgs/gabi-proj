@@ -69,13 +69,14 @@ def upsert_evaluation(
 
 
 def list_evaluations(squad_id: int, competencia: str) -> list:
-    """Confirmed evaluations for a squad/competência, joined with member name."""
+    """Confirmed evaluations for a squad/competência, joined with member name/role."""
     with _db() as conn:
         return conn.execute(
             """
-            SELECT te.*, sm.nome
+            SELECT te.*, sm.nome, sm.senioridade, r.nome AS papel_nome
             FROM tl_evaluations te
             JOIN squad_members sm ON sm.id = te.squad_member_id
+            JOIN tl_evaluation_roles r ON r.id = sm.role_id
             WHERE te.squad_id = ? AND te.competencia = ? AND te.status = 'confirmado'
             ORDER BY sm.nome
             """,

@@ -30,13 +30,36 @@ def update_squad(squad_id: int, fields: dict) -> int:
     return result.rowcount
 
 
+_MEMBER_SELECT = """
+    SELECT sm.*, r.nome AS papel_nome, r.descricao AS papel_descricao,
+           r.categoria AS papel_categoria
+    FROM squad_members sm
+    JOIN tl_evaluation_roles r ON r.id = sm.role_id
+"""
+
+
 def list_squad_members_admin(squad_id: int) -> list:
     """All members of a squad, active and deactivated."""
     with _db() as conn:
         return conn.execute(
-            "SELECT * FROM squad_members WHERE squad_id = ? ORDER BY nome",
+            f"{_MEMBER_SELECT} WHERE sm.squad_id = ? ORDER BY sm.nome",
             (squad_id,),
         ).fetchall()
+
+
+def get_member(member_id: int):
+    """A single squad member (with joined role info), or None."""
+    with _db() as conn:
+        return conn.execute(
+            f"{_MEMBER_SELECT} WHERE sm.id = ?",
+            (member_id,),
+        ).fetchone()
+
+
+def get_squad(squad_id: int):
+    """A single squad, or None."""
+    with _db() as conn:
+        return conn.execute("SELECT * FROM squads WHERE id = ?", (squad_id,)).fetchone()
 
 
 def is_squad_tl(user_email: str, squad_id: int) -> bool:
@@ -61,26 +84,24 @@ def list_tl_squads(user_email: str) -> list:
 def create_member(
     squad_id: int,
     nome: str,
-    papel: str,
+    role_id: int,
     senioridade: str,
     fornecedor: str,
 ):
     with _db() as conn:
         cursor = conn.execute(
-            "INSERT INTO squad_members (squad_id, nome, papel, senioridade, fornecedor)"
+            "INSERT INTO squad_members (squad_id, nome, role_id, senioridade, fornecedor)"
             " VALUES (?, ?, ?, ?, ?)",
-            (squad_id, nome, papel, senioridade, fornecedor),
+            (squad_id, nome, role_id, senioridade, fornecedor),
         )
-        return conn.execute(
-            "SELECT * FROM squad_members WHERE id = ?", (cursor.lastrowid,)
-        ).fetchone()
+        return conn.execute(f"{_MEMBER_SELECT} WHERE sm.id = ?", (cursor.lastrowid,)).fetchone()
 
 
 def list_members(squad_id: int) -> list:
     """Active members of the squad only."""
     with _db() as conn:
         return conn.execute(
-            "SELECT * FROM squad_members WHERE squad_id = ? AND ativo = 1 ORDER BY nome",
+            f"{_MEMBER_SELECT} WHERE sm.squad_id = ? AND sm.ativo = 1 ORDER BY sm.nome",
             (squad_id,),
         ).fetchall()
 

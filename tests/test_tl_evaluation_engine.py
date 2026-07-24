@@ -115,6 +115,104 @@ class TestBuildChatRequest:
         assert req["tools"] == engine.get_tools()
 
 
+# ── Member context section — squad/member/month must reach the system prompt ──
+
+
+class TestMemberContextSection:
+    def _context(self, **overrides) -> dict:
+        defaults = {
+            "squad_nome": "Squad Fênix",
+            "membro_nome": "Bruno Fernandez",
+            "senioridade": "Pleno",
+            "competencia": "2026-07",
+        }
+        return {**defaults, **overrides}
+
+    def test_no_context_leaves_system_prompt_unchanged(self):
+        req = engine.build_chat_request([], member_context=None)
+        assert req["system"] == engine.build_system_prompt()
+
+    def test_context_appends_squad_member_senioridade_and_competencia(self):
+        req = engine.build_chat_request([], member_context=self._context())
+        assert "Squad Fênix" in req["system"]
+        assert "Bruno Fernandez" in req["system"]
+        assert "Pleno" in req["system"]
+        assert "2026-07" in req["system"]
+        # Base rules must still be present, not replaced.
+        assert "Gate A" in req["system"]
+        assert "Gate B" in req["system"]
+
+    def test_context_instructs_model_not_to_ask_who_is_being_evaluated(self):
+        req = engine.build_chat_request([], member_context=self._context())
+        context_section = req["system"].split("## Contexto da avaliação")[1]
+        assert "NUNCA pergunte ao TL" in context_section
+
+    def test_context_and_role_sections_coexist(self):
+        role = {
+            "nome": "Tech Lead",
+            "descricao": "Responsável pelo 'como'.",
+            "responsabilidades": [{"descricao": "Escreve a DOD", "principal": 0}],
+        }
+        req = engine.build_chat_request([], role=role, member_context=self._context())
+        assert "Bruno Fernandez" in req["system"]
+        assert "Tech Lead" in req["system"]
+
+    def test_missing_optional_fields_are_omitted_gracefully(self):
+        req = engine.build_chat_request([], member_context={"membro_nome": "Ana"})
+        context_section = req["system"].split("## Contexto da avaliação")[1]
+        assert "Ana" in context_section
+        assert "Squad:" not in context_section
+        assert "Senioridade:" not in context_section
+
+
+# ── Role section — principal responsibilities become a probing requirement ────
+
+
+class TestRoleSection:
+    def _role(self, **overrides) -> dict:
+        defaults = {
+            "nome": "Tech Lead",
+            "descricao": "Responsável pelo 'como' e pela capacidade de entrega.",
+            "responsabilidades": [
+                {"descricao": "Responsável técnico pelo sucesso da sprint", "principal": 1},
+                {"descricao": "Escreve a DOD das demandas", "principal": 0},
+            ],
+        }
+        return {**defaults, **overrides}
+
+    def test_no_role_leaves_system_prompt_unchanged(self):
+        req = engine.build_chat_request([], role=None)
+        assert req["system"] == engine.build_system_prompt()
+
+    def test_role_appends_role_name_and_description(self):
+        req = engine.build_chat_request([], role=self._role())
+        assert "Tech Lead" in req["system"]
+        assert "capacidade de entrega" in req["system"]
+        # Base rules (Gate A/B, voice rule) must still be present, not replaced.
+        assert "Gate A" in req["system"]
+        assert "Gate B" in req["system"]
+
+    def test_principal_responsibility_is_marked_as_mandatory_probe(self):
+        req = engine.build_chat_request([], role=self._role())
+        assert "Responsável técnico pelo sucesso da sprint" in req["system"]
+        assert "ask_question" in req["system"].split("## Papel avaliado")[1]
+
+    def test_non_principal_responsibility_is_context_only(self):
+        req = engine.build_chat_request([], role=self._role())
+        role_section = req["system"].split("## Papel avaliado")[1]
+        assert "Escreve a DOD das demandas" in role_section
+        assert "não exigem pergunta própria" in role_section
+
+    def test_role_with_no_principal_responsibilities_has_no_probe_instruction(self):
+        role = self._role(
+            responsabilidades=[{"descricao": "Faz algo secundário", "principal": 0}]
+        )
+        req = engine.build_chat_request([], role=role)
+        role_section = req["system"].split("## Papel avaliado")[1]
+        assert "Faz algo secundário" in role_section
+        assert "Responsabilidades PRINCIPAIS" not in role_section
+
+
 # ── parse_tool_response: Gate A/B trigger and voice rule ─────────────────────
 
 

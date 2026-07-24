@@ -37,6 +37,7 @@ export function SelectField({
 
   return (
     <SelectPrimitive.Root
+      items={options}
       value={value || null}
       onValueChange={(val) => onValueChange((val as string) ?? '')}
       required={required}

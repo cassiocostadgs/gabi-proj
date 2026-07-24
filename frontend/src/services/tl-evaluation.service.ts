@@ -6,6 +6,8 @@ import type {
   ChatMessage,
   ChatTurn,
   SquadCompetenciaStatus,
+  Role,
+  RoleResponsibility,
 } from '../types'
 
 // ── Mappers (snake_case API → camelCase domain types) ─────────────────────────
@@ -23,10 +25,32 @@ function toSquadMember(raw: Record<string, unknown>): SquadMember {
     id: raw.id as number,
     squadId: raw.squad_id as number,
     nome: raw.nome as string,
-    papel: raw.papel as string,
+    roleId: raw.role_id as number,
+    papel: raw.papel_nome as string,
     senioridade: raw.senioridade as string,
     fornecedor: raw.fornecedor as string,
     active: Boolean(raw.ativo),
+  }
+}
+
+function toRoleResponsibility(raw: Record<string, unknown>): RoleResponsibility {
+  return {
+    id: raw.id as number,
+    descricao: raw.descricao as string,
+    principal: Boolean(raw.principal),
+    ordem: raw.ordem as number,
+  }
+}
+
+function toRole(raw: Record<string, unknown>): Role {
+  return {
+    id: raw.id as number,
+    nome: raw.nome as string,
+    descricao: (raw.descricao as string | null) ?? null,
+    categoria: (raw.categoria as string | null) ?? null,
+    responsabilidades: ((raw.responsabilidades as Record<string, unknown>[]) ?? []).map(
+      toRoleResponsibility
+    ),
   }
 }
 
@@ -106,12 +130,14 @@ export const tlEvaluationService = {
 
   createMember: async (
     squadId: number,
-    member: { nome: string; papel: string; senioridade: string; fornecedor: string }
+    member: { nome: string; roleId: number; senioridade: string; fornecedor: string }
   ): Promise<SquadMember> => {
-    const { data } = await api.post<Record<string, unknown>>(
-      `/api/tl/squads/${squadId}/members`,
-      member
-    )
+    const { data } = await api.post<Record<string, unknown>>(`/api/tl/squads/${squadId}/members`, {
+      nome: member.nome,
+      role_id: member.roleId,
+      senioridade: member.senioridade,
+      fornecedor: member.fornecedor,
+    })
     return toSquadMember(data)
   },
 
@@ -128,7 +154,7 @@ export const tlEvaluationService = {
     memberId: number,
     fields: Partial<{
       nome: string
-      papel: string
+      roleId: number
       senioridade: string
       fornecedor: string
       active: boolean
@@ -136,7 +162,7 @@ export const tlEvaluationService = {
   ): Promise<SquadMember> => {
     const body: Record<string, unknown> = {}
     if (fields.nome !== undefined) body.nome = fields.nome
-    if (fields.papel !== undefined) body.papel = fields.papel
+    if (fields.roleId !== undefined) body.role_id = fields.roleId
     if (fields.senioridade !== undefined) body.senioridade = fields.senioridade
     if (fields.fornecedor !== undefined) body.fornecedor = fields.fornecedor
     if (fields.active !== undefined) body.ativo = fields.active
@@ -145,6 +171,62 @@ export const tlEvaluationService = {
       body
     )
     return toSquadMember(data)
+  },
+
+  // Role catalog
+  listRoles: async (): Promise<Role[]> => {
+    const { data } = await api.get<{ roles: Record<string, unknown>[] }>('/api/tl-evaluation/roles')
+    return data.roles.map(toRole)
+  },
+
+  createRole: async (role: {
+    nome: string
+    descricao?: string
+    categoria?: string
+  }): Promise<Role> => {
+    const { data } = await api.post<Record<string, unknown>>('/api/admin/tl-evaluation/roles', role)
+    return toRole(data)
+  },
+
+  updateRole: async (
+    roleId: number,
+    fields: Partial<{ nome: string; descricao: string; categoria: string }>
+  ): Promise<Role> => {
+    const { data } = await api.patch<Record<string, unknown>>(
+      `/api/admin/tl-evaluation/roles/${roleId}`,
+      fields
+    )
+    return toRole(data)
+  },
+
+  addResponsibility: async (
+    roleId: number,
+    responsibility: { descricao: string; principal?: boolean; ordem?: number }
+  ): Promise<Role> => {
+    const { data } = await api.post<Record<string, unknown>>(
+      `/api/admin/tl-evaluation/roles/${roleId}/responsibilities`,
+      responsibility
+    )
+    return toRole(data)
+  },
+
+  updateResponsibility: async (
+    roleId: number,
+    respId: number,
+    fields: Partial<{ descricao: string; principal: boolean; ordem: number }>
+  ): Promise<Role> => {
+    const { data } = await api.patch<Record<string, unknown>>(
+      `/api/admin/tl-evaluation/roles/${roleId}/responsibilities/${respId}`,
+      fields
+    )
+    return toRole(data)
+  },
+
+  deleteResponsibility: async (roleId: number, respId: number): Promise<Role> => {
+    const { data } = await api.delete<Record<string, unknown>>(
+      `/api/admin/tl-evaluation/roles/${roleId}/responsibilities/${respId}`
+    )
+    return toRole(data)
   },
 
   getHistorico: async (squadId: number): Promise<TlEvaluation[]> => {

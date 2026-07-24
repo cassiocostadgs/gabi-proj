@@ -186,13 +186,13 @@ class TestAdminListSquadMembers:
         squad = self._create_squad(client, auth_headers)
         with main._db() as conn:
             conn.execute(
-                "INSERT INTO squad_members (squad_id, nome, papel, senioridade, fornecedor, ativo)"
-                " VALUES (?, 'Alice Silva', 'Dev', 'Sênior', 'DB1', 1)",
+                "INSERT INTO squad_members (squad_id, nome, role_id, senioridade, fornecedor, ativo)"
+                " VALUES (?, 'Alice Silva', 1, 'Sênior', 'DB1', 1)",
                 (squad["id"],),
             )
             conn.execute(
-                "INSERT INTO squad_members (squad_id, nome, papel, senioridade, fornecedor, ativo)"
-                " VALUES (?, 'Bob Santos', 'QA', 'Pleno', 'DB1', 0)",
+                "INSERT INTO squad_members (squad_id, nome, role_id, senioridade, fornecedor, ativo)"
+                " VALUES (?, 'Bob Santos', 2, 'Pleno', 'DB1', 0)",
                 (squad["id"],),
             )
 
@@ -218,7 +218,7 @@ class TestAdminListSquadMembers:
         squad = self._create_squad(client, auth_headers)
         resp = client.post(
             f"/api/admin/squads/{squad['id']}/members",
-            json={"nome": "Eve", "papel": "Dev", "senioridade": "Júnior", "fornecedor": "DB1"},
+            json={"nome": "Eve", "role_id": 1, "senioridade": "Júnior", "fornecedor": "DB1"},
             headers=auth_headers,
         )
         assert resp.status_code in (404, 405)
@@ -266,7 +266,7 @@ class TestTlListSquads:
 
 _MEMBER_BODY = {
     "nome": "João Silva",
-    "papel": "Dev",
+    "role_id": 1,  # seeded role catalog — see seed_default_roles()
     "senioridade": "Pleno",
     "fornecedor": "DB1",
 }
@@ -300,6 +300,15 @@ class TestTlMemberCRUD:
             headers=non_admin_headers,
         )
         assert resp.status_code == 403
+
+    def test_create_member_invalid_role_id_returns_422(self, client, auth_headers):
+        squad = self._create_squad(client, auth_headers)
+        resp = client.post(
+            f"/api/tl/squads/{squad['id']}/members",
+            json={**_MEMBER_BODY, "role_id": 9999},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
 
     def test_list_returns_only_active(self, client, auth_headers):
         squad = self._create_squad(client, auth_headers)
@@ -533,6 +542,46 @@ class TestTlChatTurn:
             headers=non_admin_headers,
         )
         assert resp.status_code == 403
+
+    def test_chat_request_carries_squad_member_and_competencia_context(
+        self, client, auth_headers, monkeypatch
+    ):
+        """The system prompt sent to Claude must already know who/where/when —
+        the model must never need to ask the TL who is being evaluated."""
+        import main
+
+        squad, member = self._setup(client, auth_headers)
+        mock_response = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "name": "ask_question",
+                    "input": {"question": "Pode dar um exemplo concreto?"},
+                }
+            ]
+        }
+        captured = {}
+
+        def fake_complete(req):
+            captured["request"] = req
+            return mock_response
+
+        monkeypatch.setattr(main.anthropic_client, "complete", fake_complete)
+        client.post(
+            "/api/tl-evaluations/chat",
+            json={
+                "squad_id": squad["id"],
+                "competencia": "2026-07",
+                "squad_member_id": member["id"],
+                "messages": [{"role": "user", "content": "Relato inicial."}],
+            },
+            headers=auth_headers,
+        )
+        system_prompt = captured["request"]["system"]
+        assert squad["nome"] in system_prompt
+        assert member["nome"] in system_prompt
+        assert member["senioridade"] in system_prompt
+        assert "2026-07" in system_prompt
 
 
 # ── TL evaluation confirmation ────────────────────────────────────────────────
@@ -1015,7 +1064,9 @@ class TestTlPdfEndpoint:
         monkeypatch.setattr(
             main.tl_evaluation_pdf,
             "generate_squad_pdf",
-            lambda squad_name, competencia, evaluations: b"%PDF-1.4 mock",
+            lambda squad_name, competencia, evaluations, *, tech_lead_nome, historico=(): (
+                b"%PDF-1.4 mock"
+            ),
         )
         resp = client.get(
             f"/api/tl-evaluations/{squad['id']}/2026-07/pdf",
@@ -1032,3 +1083,236 @@ class TestTlPdfEndpoint:
             headers=non_admin_headers,
         )
         assert resp.status_code == 403
+
+    def test_generate_squad_pdf_renders_real_document(self):
+        """Exercises the real WeasyPrint template end-to-end — the endpoint tests
+        above only ever mock generate_squad_pdf out, so this is the only test that
+        would catch a broken HTML/CSS template."""
+        import tl_evaluation_pdf
+
+        evaluations = [
+            {
+                "squad_member_id": 1,
+                "nome": "Miranda Taylor",
+                "papel_nome": "Desenvolvedor",
+                "senioridade": "Pleno",
+                "competencia": "2026-07",
+                "comportamental_nota": 1,
+                "comportamental_paragrafo": "Não reportou impedimentos nas dailys.",
+                "tecnica_nota": 2,
+                "tecnica_paragrafo": "Entrega com problemas de qualidade.",
+                "prazo_nota": 1,
+                "prazo_paragrafo": "Nenhuma US entregue na sprint.",
+                "janela_reduzida": False,
+            },
+            {
+                "squad_member_id": 2,
+                "nome": "Ludwig MacAlister",
+                "papel_nome": "Desenvolvedor",
+                "senioridade": "Junior",
+                "competencia": "2026-07",
+                "comportamental_nota": 5,
+                "comportamental_paragrafo": "Participação ativa e proatividade.",
+                "tecnica_nota": 5,
+                "tecnica_paragrafo": "Entregas de alta qualidade.",
+                "prazo_nota": 4,
+                "prazo_paragrafo": "Entregas dentro do prazo.",
+                "janela_reduzida": True,
+            },
+        ]
+        historico = [
+            {
+                "squad_member_id": 1,
+                "competencia": "2026-06",
+                "comportamental_nota": 2,
+                "tecnica_nota": 2,
+                "prazo_nota": 1,
+            },
+            {
+                "squad_member_id": 1,
+                "competencia": "2026-05",
+                "comportamental_nota": 2,
+                "tecnica_nota": 2,
+                "prazo_nota": 1,
+            },
+        ]
+
+        pdf_bytes = tl_evaluation_pdf.generate_squad_pdf(
+            squad_name="Pagamentos",
+            competencia="2026-07",
+            evaluations=evaluations,
+            tech_lead_nome="John MacClane",
+            historico=historico,
+        )
+        assert pdf_bytes.startswith(b"%PDF")
+        assert len(pdf_bytes) > 2000
+
+
+# ── Role catalog ──────────────────────────────────────────────────────────────
+
+
+class TestRoleCatalogRead:
+    def test_seeded_roles_are_listed(self, client, auth_headers):
+        resp = client.get("/api/tl-evaluation/roles", headers=auth_headers)
+        assert resp.status_code == 200
+        roles = resp.json()["roles"]
+        assert len(roles) == 6
+        nomes = {r["nome"] for r in roles}
+        assert "Tech Lead" in nomes
+        assert "Desenvolvedor" in nomes
+
+    def test_role_includes_nested_responsibilities_with_principal_flag(
+        self, client, auth_headers
+    ):
+        roles = client.get("/api/tl-evaluation/roles", headers=auth_headers).json()["roles"]
+        tech_lead = next(r for r in roles if r["nome"] == "Tech Lead")
+        assert len(tech_lead["responsabilidades"]) > 0
+        assert any(r["principal"] for r in tech_lead["responsabilidades"])
+        assert any(not r["principal"] for r in tech_lead["responsabilidades"])
+
+    def test_readable_by_non_admin_tl(self, client, non_admin_headers):
+        """Any authenticated user can read the catalog — needed to populate the member form."""
+        resp = client.get("/api/tl-evaluation/roles", headers=non_admin_headers)
+        assert resp.status_code == 200
+
+    def test_unauthenticated_returns_401(self, client):
+        assert client.get("/api/tl-evaluation/roles").status_code == 401
+
+
+class TestRoleCatalogAdminCrud:
+    def test_create_role_returns_201(self, client, auth_headers):
+        resp = client.post(
+            "/api/admin/tl-evaluation/roles",
+            json={"nome": "Designer", "descricao": "UX/UI", "categoria": "Produto"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["nome"] == "Designer"
+        assert "id" in data
+
+    def test_duplicate_name_returns_409(self, client, auth_headers):
+        client.post(
+            "/api/admin/tl-evaluation/roles",
+            json={"nome": "Designer Dup", "descricao": "", "categoria": ""},
+            headers=auth_headers,
+        )
+        resp = client.post(
+            "/api/admin/tl-evaluation/roles",
+            json={"nome": "Designer Dup", "descricao": "", "categoria": ""},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 409
+
+    def test_non_admin_create_returns_403(self, client, non_admin_headers):
+        resp = client.post(
+            "/api/admin/tl-evaluation/roles",
+            json={"nome": "Blocked Role"},
+            headers=non_admin_headers,
+        )
+        assert resp.status_code == 403
+
+    def test_update_role_returns_200(self, client, auth_headers):
+        role = client.post(
+            "/api/admin/tl-evaluation/roles",
+            json={"nome": "Role To Update", "descricao": "old", "categoria": "old"},
+            headers=auth_headers,
+        ).json()
+        resp = client.patch(
+            f"/api/admin/tl-evaluation/roles/{role['id']}",
+            json={"descricao": "new"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["descricao"] == "new"
+
+    def test_update_nonexistent_role_returns_404(self, client, auth_headers):
+        resp = client.patch(
+            "/api/admin/tl-evaluation/roles/9999",
+            json={"descricao": "new"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+
+    def test_add_responsibility_returns_201_and_appears_in_role(self, client, auth_headers):
+        role = client.post(
+            "/api/admin/tl-evaluation/roles",
+            json={"nome": "Role With Resp", "descricao": "", "categoria": ""},
+            headers=auth_headers,
+        ).json()
+        resp = client.post(
+            f"/api/admin/tl-evaluation/roles/{role['id']}/responsibilities",
+            json={"descricao": "Faz X", "principal": True},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201
+        listed = client.get("/api/tl-evaluation/roles", headers=auth_headers).json()["roles"]
+        updated_role = next(r for r in listed if r["id"] == role["id"])
+        assert len(updated_role["responsabilidades"]) == 1
+        assert updated_role["responsabilidades"][0]["descricao"] == "Faz X"
+        assert updated_role["responsabilidades"][0]["principal"] == 1
+
+    def test_add_responsibility_to_nonexistent_role_returns_404(self, client, auth_headers):
+        resp = client.post(
+            "/api/admin/tl-evaluation/roles/9999/responsibilities",
+            json={"descricao": "Faz X"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+
+    def test_update_responsibility_toggles_principal(self, client, auth_headers):
+        role = client.post(
+            "/api/admin/tl-evaluation/roles",
+            json={"nome": "Role Toggle", "descricao": "", "categoria": ""},
+            headers=auth_headers,
+        ).json()
+        resp = client.post(
+            f"/api/admin/tl-evaluation/roles/{role['id']}/responsibilities",
+            json={"descricao": "Faz Y", "principal": False},
+            headers=auth_headers,
+        )
+        # POST returns the whole updated role (consistent with PATCH/DELETE) — pull the
+        # responsibility's own id from the nested list, not resp.json()["id"] (role id).
+        resp_id = resp.json()["responsabilidades"][0]["id"]
+        patch_resp = client.patch(
+            f"/api/admin/tl-evaluation/roles/{role['id']}/responsibilities/{resp_id}",
+            json={"principal": True},
+            headers=auth_headers,
+        )
+        assert patch_resp.status_code == 200
+        listed = client.get("/api/tl-evaluation/roles", headers=auth_headers).json()["roles"]
+        updated_role = next(r for r in listed if r["id"] == role["id"])
+        assert updated_role["responsabilidades"][0]["principal"] == 1
+
+    def test_delete_responsibility_removes_it(self, client, auth_headers):
+        role = client.post(
+            "/api/admin/tl-evaluation/roles",
+            json={"nome": "Role Delete", "descricao": "", "categoria": ""},
+            headers=auth_headers,
+        ).json()
+        resp = client.post(
+            f"/api/admin/tl-evaluation/roles/{role['id']}/responsibilities",
+            json={"descricao": "Faz Z"},
+            headers=auth_headers,
+        )
+        resp_id = resp.json()["responsabilidades"][0]["id"]
+        del_resp = client.delete(
+            f"/api/admin/tl-evaluation/roles/{role['id']}/responsibilities/{resp_id}",
+            headers=auth_headers,
+        )
+        assert del_resp.status_code == 200
+        listed = client.get("/api/tl-evaluation/roles", headers=auth_headers).json()["roles"]
+        updated_role = next(r for r in listed if r["id"] == role["id"])
+        assert updated_role["responsabilidades"] == []
+
+    def test_delete_nonexistent_responsibility_returns_404(self, client, auth_headers):
+        role = client.post(
+            "/api/admin/tl-evaluation/roles",
+            json={"nome": "Role Delete 404", "descricao": "", "categoria": ""},
+            headers=auth_headers,
+        ).json()
+        resp = client.delete(
+            f"/api/admin/tl-evaluation/roles/{role['id']}/responsibilities/9999",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
