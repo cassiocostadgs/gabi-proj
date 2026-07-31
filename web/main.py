@@ -38,6 +38,7 @@ import core.anthropic_client as anthropic_client  # noqa: E402
 import gabi_engine  # noqa: E402
 import repositories.client_evaluation_repository as client_evaluation_repository  # noqa: E402
 import repositories.squad_repository as squad_repository  # noqa: E402
+import repositories.tl_evaluation_prompt_repository as tl_evaluation_prompt_repository  # noqa: E402
 import repositories.tl_evaluation_repository as tl_evaluation_repository  # noqa: E402
 import repositories.tl_evaluation_role_repository as tl_evaluation_role_repository  # noqa: E402
 import tl_evaluation_engine  # noqa: E402
@@ -287,6 +288,31 @@ def _init_db() -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_sqc_closure
               ON squad_competencia_closures (squad_id, competencia)
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tl_evaluation_prompt_sections (
+                section_key TEXT PRIMARY KEY,
+                content     TEXT NOT NULL,
+                updated_by  TEXT NOT NULL,
+                updated_at  TIMESTAMP NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tl_evaluation_prompt_section_history (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                section_key  TEXT NOT NULL,
+                content      TEXT NOT NULL,
+                changed_by   TEXT NOT NULL,
+                changed_at   TIMESTAMP NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tl_evaluation_voice_forbidden_words (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                palavra    TEXT NOT NULL UNIQUE,
+                created_by TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
 
         # Migrations for existing installs
         for ddl in [
@@ -315,6 +341,9 @@ def _init_db() -> None:
 
         if not conn.execute("SELECT 1 FROM tl_evaluation_roles LIMIT 1").fetchone():
             tl_evaluation_role_repository.seed_default_roles(conn)
+
+        if not conn.execute("SELECT 1 FROM tl_evaluation_prompt_sections LIMIT 1").fetchone():
+            tl_evaluation_prompt_repository.seed_defaults(conn)
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -2251,6 +2280,111 @@ async def admin_delete_responsibility(role_id: int, resp_id: int, _: AdminUser):
     return role
 
 
+# ── Routes: prompt settings (tl-evaluation domain) ───────────────────────────
+#
+# Admin-only visibility into and editing of the AI evaluation prompt — see
+# .agents/specs/003-tl-evaluation-prompt-admin/spec.md. No TL-scoped route
+# exists for any of this; the TL only experiences the prompt's effect.
+
+PROMPT_SECTION_NOT_FOUND = "Seção de prompt não editável ou inexistente"
+
+
+class UpdatePromptSectionRequest(BaseModel):
+    content: str
+
+
+class AddForbiddenWordRequest(BaseModel):
+    palavra: str
+
+
+def _resolve_role_and_context(squad_member_id: int, squad_id: int, competencia: str):
+    """Shared by `tl_chat` and the prompt preview endpoint — resolves the same
+    role/member_context shape from the same repositories, so the preview is
+    guaranteed to match what a real chat turn would actually send."""
+    member = squad_repository.get_member(squad_member_id)
+    role = tl_evaluation_role_repository.get_role(member["role_id"]) if member else None
+    member_context = None
+    if member is not None:
+        squad = squad_repository.get_squad(squad_id)
+        member_context = {
+            "squad_nome": squad["nome"] if squad else None,
+            "membro_nome": member["nome"],
+            "senioridade": member["senioridade"],
+            "competencia": competencia,
+        }
+    return role, member_context
+
+
+@app.get("/api/admin/tl-evaluation-prompt")
+async def admin_get_prompt(_: AdminUser):
+    return {
+        "sections": tl_evaluation_prompt_repository.get_sections(),
+        "escala_referencia": tl_evaluation_engine.escala_reference_text(),
+        "forbidden_words": tl_evaluation_prompt_repository.get_forbidden_words(),
+        **tl_evaluation_engine.model_config(),
+    }
+
+
+@app.put(
+    "/api/admin/tl-evaluation-prompt/sections/{section_key}",
+    responses={404: {"description": PROMPT_SECTION_NOT_FOUND}},
+)
+async def admin_update_prompt_section(
+    section_key: str, body: UpdatePromptSectionRequest, admin_email: AdminUser
+):
+    try:
+        row = tl_evaluation_prompt_repository.update_section(
+            section_key, body.content, admin_email
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=PROMPT_SECTION_NOT_FOUND) from exc
+    return row
+
+
+@app.get("/api/admin/tl-evaluation-prompt/sections/{section_key}/history")
+async def admin_get_prompt_section_history(section_key: str, _: AdminUser):
+    return {"history": tl_evaluation_prompt_repository.get_section_history(section_key)}
+
+
+@app.post(
+    "/api/admin/tl-evaluation-prompt/voice-words",
+    status_code=201,
+    responses={422: {"description": "Palavra inválida ou já cadastrada"}},
+)
+async def admin_add_forbidden_word(body: AddForbiddenWordRequest, admin_email: AdminUser):
+    try:
+        words = tl_evaluation_prompt_repository.add_forbidden_word(body.palavra, admin_email)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"forbidden_words": words}
+
+
+@app.delete("/api/admin/tl-evaluation-prompt/voice-words/{palavra}")
+async def admin_remove_forbidden_word(palavra: str, admin_email: AdminUser):
+    words = tl_evaluation_prompt_repository.remove_forbidden_word(palavra, admin_email)
+    return {"forbidden_words": words}
+
+
+@app.get(
+    "/api/admin/tl-evaluation-prompt/preview",
+    responses={404: {"description": MEMBER_NOT_FOUND}},
+)
+async def admin_preview_prompt(
+    squad_id: int, squad_member_id: int, competencia: str, _: AdminUser
+):
+    role, member_context = _resolve_role_and_context(squad_member_id, squad_id, competencia)
+    if member_context is None:
+        raise HTTPException(status_code=404, detail=MEMBER_NOT_FOUND)
+    request_body = tl_evaluation_engine.build_chat_request(
+        [],
+        role=role,
+        member_context=member_context,
+        sections=tl_evaluation_prompt_repository.get_section_contents(),
+        forbidden_words=tl_evaluation_prompt_repository.get_forbidden_words(),
+    )
+    return {"system": request_body["system"]}
+
+
 # ── Routes: TL squads and members (tl-evaluation domain) ─────────────────────
 
 
@@ -2392,26 +2526,24 @@ async def tl_get_historico(squad_id: int, email: CurrentUser):
 )
 async def tl_chat(body: ChatRequest, email: CurrentUser):
     _require_tl_or_admin(email, body.squad_id)
-    member = squad_repository.get_member(body.squad_member_id)
-    role = tl_evaluation_role_repository.get_role(member["role_id"]) if member else None
-    member_context = None
-    if member is not None:
-        squad = squad_repository.get_squad(body.squad_id)
-        member_context = {
-            "squad_nome": squad["nome"] if squad else None,
-            "membro_nome": member["nome"],
-            "senioridade": member["senioridade"],
-            "competencia": body.competencia,
-        }
+    role, member_context = _resolve_role_and_context(
+        body.squad_member_id, body.squad_id, body.competencia
+    )
+    sections = tl_evaluation_prompt_repository.get_section_contents()
+    forbidden_words = tl_evaluation_prompt_repository.get_forbidden_words()
     request_body = tl_evaluation_engine.build_chat_request(
-        body.messages, role=role, member_context=member_context
+        body.messages,
+        role=role,
+        member_context=member_context,
+        sections=sections,
+        forbidden_words=forbidden_words,
     )
     try:
         response = anthropic_client.complete(request_body)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
-        return tl_evaluation_engine.parse_tool_response(response)
+        return tl_evaluation_engine.parse_tool_response(response, forbidden_words)
     except ValueError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

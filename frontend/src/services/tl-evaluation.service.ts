@@ -8,6 +8,10 @@ import type {
   SquadCompetenciaStatus,
   Role,
   RoleResponsibility,
+  PromptSection,
+  PromptSectionKey,
+  PromptSectionHistoryEntry,
+  PromptSettings,
 } from '../types'
 
 // ── Mappers (snake_case API → camelCase domain types) ─────────────────────────
@@ -69,6 +73,36 @@ function toTlEvaluation(raw: Record<string, unknown>): TlEvaluation {
     status: 'confirmado',
     confirmedBy: raw.confirmed_by as string,
     confirmedAt: raw.confirmed_at as string,
+  }
+}
+
+function toPromptSection(raw: Record<string, unknown>): PromptSection {
+  return {
+    content: raw.content as string,
+    updatedBy: raw.updated_by as string,
+    updatedAt: raw.updated_at as string,
+  }
+}
+
+function toPromptSectionHistoryEntry(raw: Record<string, unknown>): PromptSectionHistoryEntry {
+  return {
+    content: raw.content as string,
+    changedBy: raw.changed_by as string,
+    changedAt: raw.changed_at as string,
+  }
+}
+
+function toPromptSettings(raw: Record<string, unknown>): PromptSettings {
+  const sectionsRaw = raw.sections as Record<string, Record<string, unknown>>
+  const sections = Object.fromEntries(
+    Object.entries(sectionsRaw).map(([key, value]) => [key, toPromptSection(value)])
+  ) as PromptSettings['sections']
+  return {
+    sections,
+    escalaReferencia: raw.escala_referencia as string,
+    forbiddenWords: raw.forbidden_words as string[],
+    model: raw.model as string,
+    maxTokens: raw.max_tokens as number,
   }
 }
 
@@ -331,5 +365,57 @@ export const tlEvaluationService = {
       responseType: 'blob',
     })
     return data
+  },
+
+  // Prompt admin (003-tl-evaluation-prompt-admin)
+  getPromptSettings: async (): Promise<PromptSettings> => {
+    const { data } = await api.get<Record<string, unknown>>('/api/admin/tl-evaluation-prompt')
+    return toPromptSettings(data)
+  },
+
+  updatePromptSection: async (
+    sectionKey: PromptSectionKey,
+    content: string
+  ): Promise<PromptSection> => {
+    const { data } = await api.put<Record<string, unknown>>(
+      `/api/admin/tl-evaluation-prompt/sections/${sectionKey}`,
+      { content }
+    )
+    return toPromptSection(data)
+  },
+
+  getPromptSectionHistory: async (
+    sectionKey: PromptSectionKey | 'voz'
+  ): Promise<PromptSectionHistoryEntry[]> => {
+    const { data } = await api.get<{ history: Record<string, unknown>[] }>(
+      `/api/admin/tl-evaluation-prompt/sections/${sectionKey}/history`
+    )
+    return data.history.map(toPromptSectionHistoryEntry)
+  },
+
+  addForbiddenWord: async (palavra: string): Promise<string[]> => {
+    const { data } = await api.post<{ forbidden_words: string[] }>(
+      '/api/admin/tl-evaluation-prompt/voice-words',
+      { palavra }
+    )
+    return data.forbidden_words
+  },
+
+  removeForbiddenWord: async (palavra: string): Promise<string[]> => {
+    const { data } = await api.delete<{ forbidden_words: string[] }>(
+      `/api/admin/tl-evaluation-prompt/voice-words/${encodeURIComponent(palavra)}`
+    )
+    return data.forbidden_words
+  },
+
+  previewPrompt: async (
+    squadId: number,
+    squadMemberId: number,
+    competencia: string
+  ): Promise<string> => {
+    const { data } = await api.get<{ system: string }>('/api/admin/tl-evaluation-prompt/preview', {
+      params: { squad_id: squadId, squad_member_id: squadMemberId, competencia },
+    })
+    return data.system
   },
 }

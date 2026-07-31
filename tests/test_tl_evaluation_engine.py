@@ -331,3 +331,150 @@ class TestParseToolResponse:
     def test_raises_on_empty_content(self):
         with pytest.raises(ValueError):
             engine.parse_tool_response({"content": []})
+
+
+# ── Admin-editable sections / forbidden words (003-tl-evaluation-prompt-admin) ─
+#
+# The system prompt used to be one hardcoded constant; it is now composed from
+# admin-editable sections plus a structured forbidden-words list (both DB-backed
+# in production, resolved by the caller — this module stays pure). These tests
+# guard the two properties that matter most: (1) the shipped defaults reproduce
+# today's exact behavior byte-for-byte, and (2) an admin edit to one section or
+# to the word list actually changes what gets sent, without corrupting anything
+# else.
+
+
+class TestDefaultsReproduceLegacyPromptExactly:
+    def test_build_system_prompt_with_no_args_matches_legacy_constant(self):
+        """The defaults are *derived* from `_SYSTEM_PROMPT` via slicing, never
+        hand-retyped — this assertion is what actually proves that derivation
+        round-trips losslessly, not just that it looks right on inspection."""
+        assert engine.build_system_prompt() == engine._SYSTEM_PROMPT
+
+    def test_default_sections_cover_every_editable_key(self):
+        sections = engine.default_sections()
+        assert set(sections) == set(engine.EDITABLE_SECTION_KEYS)
+
+    def test_default_adicionais_seeds_empty(self):
+        assert engine.default_sections()["adicionais"] == ""
+
+    def test_default_forbidden_words_match_legacy_constant(self):
+        assert engine.default_forbidden_words() == list(engine._FORBIDDEN_VOICE_MARKERS)
+
+    def test_escala_reference_text_is_not_in_editable_keys(self):
+        assert "escala" not in engine.EDITABLE_SECTION_KEYS
+        assert "voz" not in engine.EDITABLE_SECTION_KEYS
+        assert "## Escala de referência" in engine.escala_reference_text()
+
+    def test_model_config_matches_build_chat_request(self):
+        config = engine.model_config()
+        req = engine.build_chat_request([])
+        assert req["model"] == config["model"]
+        assert req["max_tokens"] == config["max_tokens"]
+
+
+class TestCustomSections:
+    def _sections(self, **overrides) -> dict:
+        base = engine.default_sections()
+        base.update(overrides)
+        return base
+
+    def test_custom_papel_replaces_only_that_section(self):
+        prompt = engine.build_system_prompt(sections=self._sections(papel="Texto customizado."))
+        assert "Texto customizado." in prompt
+        # Everything else (Gates, escala) must survive untouched.
+        assert "Gate A" in prompt
+        assert "Gate B" in prompt
+        assert "## Escala de referência" in prompt
+
+    def test_custom_adicionais_appended_last(self):
+        prompt = engine.build_system_prompt(
+            sections=self._sections(adicionais="Pergunte sobre câmera ligada nas calls.")
+        )
+        assert prompt.rstrip().endswith("Pergunte sobre câmera ligada nas calls.")
+        assert "## Instruções adicionais" in prompt
+
+    def test_empty_adicionais_produces_no_trailing_section(self):
+        prompt = engine.build_system_prompt(sections=self._sections(adicionais=""))
+        assert "Instruções adicionais" not in prompt
+
+    def test_whitespace_only_adicionais_treated_as_empty(self):
+        prompt = engine.build_system_prompt(sections=self._sections(adicionais="   \n  "))
+        assert "Instruções adicionais" not in prompt
+
+    def test_missing_section_key_falls_back_to_default(self):
+        sections = engine.default_sections()
+        del sections["gateA"]
+        prompt = engine.build_system_prompt(sections=sections)
+        assert "Toda vez que a avaliação convergir para nota 5" in prompt
+
+    def test_edited_regras_section_reflected_verbatim(self):
+        prompt = engine.build_system_prompt(
+            sections=self._sections(regras="1. Regra totalmente nova de teste.")
+        )
+        assert "1. Regra totalmente nova de teste." in prompt
+        assert "Sem invenção" not in prompt  # old content actually replaced, not merged
+
+
+class TestCustomForbiddenWords:
+    def test_voz_section_lists_custom_words(self):
+        prompt = engine.build_system_prompt(forbidden_words=["câmera desligada", "TL"])
+        assert '"câmera desligada"' in prompt
+        assert '"TL"' in prompt
+        # Words not in the custom list must not appear as a quoted forbidden term.
+        assert '"relato"' not in prompt
+
+    def test_default_forbidden_words_preserve_legacy_voz_wording(self):
+        prompt = engine.build_system_prompt(forbidden_words=list(engine._FORBIDDEN_VOICE_MARKERS))
+        assert prompt == engine._SYSTEM_PROMPT
+
+    def test_check_voice_rule_uses_passed_words_not_module_default(self):
+        # "relato" is a legacy default marker; omit it from the custom list.
+        with pytest.raises(ValueError, match="câmera"):
+            engine._check_voice_rule(
+                {"comportamental_paragrafo": "Manteve a câmera desligada durante as calls."},
+                forbidden_words=["câmera"],
+            )
+
+    def test_check_voice_rule_does_not_flag_word_outside_custom_list(self):
+        # "relato" would trip the legacy default, but is absent from this custom list.
+        engine._check_voice_rule(
+            {"comportamental_paragrafo": "Conforme relato da reunião, entregou no prazo."},
+            forbidden_words=["câmera"],
+        )  # must not raise
+
+    def test_parse_tool_response_passes_forbidden_words_through(self):
+        resp = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "name": "propose_evaluation",
+                    "input": {
+                        "comportamental_nota": 4,
+                        "comportamental_paragrafo": "Manteve a câmera desligada nas calls.",
+                        "tecnica_nota": 4,
+                        "tecnica_paragrafo": "Entregou as tarefas planejadas.",
+                        "prazo_nota": 4,
+                        "prazo_paragrafo": "Cumpriu os prazos combinados.",
+                        "janela_reduzida": False,
+                    },
+                }
+            ]
+        }
+        with pytest.raises(ValueError, match="câmera"):
+            engine.parse_tool_response(resp, forbidden_words=["câmera"])
+
+    def test_build_chat_request_forwards_sections_and_words(self):
+        req = engine.build_chat_request(
+            [],
+            sections=self._sections_helper(papel="Assistente customizado."),
+            forbidden_words=["xyz"],
+        )
+        assert "Assistente customizado." in req["system"]
+        assert '"xyz"' in req["system"]
+
+    @staticmethod
+    def _sections_helper(**overrides) -> dict:
+        base = engine.default_sections()
+        base.update(overrides)
+        return base

@@ -3,6 +3,14 @@
 Encodes all inherited business rules as static data (system prompt and tool
 schemas).  The actual Anthropic API call lives in web/core/anthropic_client.py
 so this module remains testable without any network access.
+
+Prompt sections and the forbidden-voice-markers list are admin-editable at
+runtime (see repositories/tl_evaluation_prompt_repository.py) — this module
+stays pure by taking both as plain arguments, never reading the database
+itself. The literal values below (`_SYSTEM_PROMPT`, `_FORBIDDEN_VOICE_MARKERS`)
+are kept only as the source the defaults/seed data are *derived* from — never
+retyped — so the seed migration and the pure-function defaults can never
+diverge from each other or from this file's own history.
 """
 
 _FORBIDDEN_VOICE_MARKERS = ("TL", "relato", "reportou")
@@ -79,6 +87,72 @@ uma pergunta por vez, objetiva e direcionada à lacuna específica.
 - Use `propose_evaluation` quando tiver evidência suficiente para propor nota e \
 parágrafo nas três dimensões, respeitando todos os gates e regras acima.\
 """
+
+# ── Section boundaries — order is structural (fixed), bodies are admin data ──
+#
+# `_ESCALA_HEADER`/`_ESCALA_BODY` are never exposed as an editable section (the
+# 1-5 range is coupled to the tool schema and to `tl_evaluations` integer
+# columns — see spec 003-tl-evaluation-prompt-admin). Every other header below
+# corresponds to one admin-editable row in `tl_evaluation_prompt_sections`.
+
+_ESCALA_HEADER = "## Escala de referência"
+_SECTION_HEADERS: tuple[tuple[str, str], ...] = (
+    ("fluxo", "## Fluxo de trabalho"),
+    ("gateA", "## Gate A — Nota 5 exige fato externo de superação"),
+    ("gateB", "## Gate B — Afirmação genérica exige exemplo concreto"),
+    ("regras", "## Regras de geração (inegociáveis)"),
+    ("voz", "## Regra de voz (inegociável)"),
+    ("instrucao", "## Instrução de resposta"),
+)
+
+# The set of `section_key` values actually stored as rows in
+# `tl_evaluation_prompt_sections` / accepted by the admin PUT endpoint.
+# Excludes "voz" (structured forbidden-words list, not free text — see
+# `_render_voz_body`) and "escala" (hardcoded, never editable — see module
+# docstring / spec 003-tl-evaluation-prompt-admin).
+EDITABLE_SECTION_KEYS: tuple[str, ...] = (
+    "papel",
+    "fluxo",
+    "gateA",
+    "gateB",
+    "regras",
+    "instrucao",
+    "adicionais",
+)
+
+
+def _derive_defaults() -> tuple[dict[str, str], str]:
+    """Slice `_SYSTEM_PROMPT` at its own header markers to get default section
+    bodies — never hand-retyped, so they cannot diverge from the literal prompt
+    above. Returns (sections, escala_full_block)."""
+    text = _SYSTEM_PROMPT
+    escala_idx = text.index(_ESCALA_HEADER)
+    markers = [(escala_idx, "escala", _ESCALA_HEADER)]
+    for key, header in _SECTION_HEADERS:
+        markers.append((text.index(header), key, header))
+    markers.sort(key=lambda m: m[0])
+
+    bodies: dict[str, str] = {"papel": text[: markers[0][0]].strip("\n")}
+    escala_full_block = ""
+    for i, (idx, key, header) in enumerate(markers):
+        start = idx + len(header)
+        end = markers[i + 1][0] if i + 1 < len(markers) else len(text)
+        chunk = text[start:end].strip("\n")
+        if key == "escala":
+            escala_full_block = f"{header}\n{chunk}"
+        else:
+            bodies[key] = chunk
+    return bodies, escala_full_block
+
+
+_DEFAULT_SECTIONS, _ESCALA_FULL_BLOCK = _derive_defaults()
+
+# `voz`'s default body embeds the default forbidden-words list inline, exactly
+# as `_SYSTEM_PROMPT` does — split it out so `_render_voz_body` can re-render
+# with an admin-edited word list while keeping the surrounding prose untouched.
+_VOZ_DEFAULT_WORDS_REPR = ", ".join(f'"{w}"' for w in _FORBIDDEN_VOICE_MARKERS)
+_VOZ_INTRO, _VOZ_OUTRO = _DEFAULT_SECTIONS["voz"].split(_VOZ_DEFAULT_WORDS_REPR)
+del _DEFAULT_SECTIONS["voz"]  # not stored verbatim — rendered from forbidden_words instead
 
 _TOOLS: list[dict] = [
     {
@@ -164,14 +238,66 @@ _CLAUDE_MODEL = "claude-sonnet-4-6"
 _MAX_TOKENS = 2048
 
 
-def build_system_prompt() -> str:
-    """Return the static system prompt encoding all business rules."""
-    return _SYSTEM_PROMPT
+def default_sections() -> dict[str, str]:
+    """The seed content for every admin-editable section (`adicionais` seeds
+    empty). Used both as this module's own fallback defaults and by the DB
+    migration's one-time seed step — same object, so seed and default can
+    never drift apart."""
+    return {**_DEFAULT_SECTIONS, "adicionais": ""}
+
+
+def default_forbidden_words() -> list[str]:
+    """The seed content for the forbidden-voice-markers list."""
+    return list(_FORBIDDEN_VOICE_MARKERS)
+
+
+def _render_voz_body(forbidden_words: list[str]) -> str:
+    words_repr = ", ".join(f'"{w}"' for w in forbidden_words)
+    return f"{_VOZ_INTRO}{words_repr}{_VOZ_OUTRO}"
+
+
+def build_system_prompt(
+    sections: dict[str, str] | None = None,
+    forbidden_words: list[str] | None = None,
+) -> str:
+    """Compose the full system prompt from admin-editable sections plus the
+    hardcoded, non-editable *Escala de referência* block. Pure — no I/O; the
+    caller resolves `sections`/`forbidden_words` from the database (or omits
+    both to get today's shipped defaults, e.g. in tests)."""
+    sections = sections if sections is not None else _DEFAULT_SECTIONS
+    if forbidden_words is None:
+        forbidden_words = list(_FORBIDDEN_VOICE_MARKERS)
+
+    parts = [sections.get("papel", _DEFAULT_SECTIONS["papel"]), _ESCALA_FULL_BLOCK]
+    for key, header in _SECTION_HEADERS:
+        if key == "voz":
+            body = _render_voz_body(forbidden_words)
+        else:
+            body = sections.get(key, _DEFAULT_SECTIONS.get(key, ""))
+        parts.append(f"{header}\n\n{body}")
+
+    adicionais = (sections.get("adicionais") or "").strip()
+    if adicionais:
+        parts.append(f"## Instruções adicionais\n\n{adicionais}")
+
+    return "\n\n".join(parts)
 
 
 def get_tools() -> list[dict]:
     """Return the two tool schemas passed to the Anthropic Messages API."""
     return list(_TOOLS)
+
+
+def escala_reference_text() -> str:
+    """The hardcoded *Escala de referência* block, header included — for
+    read-only display in the admin prompt screen. Never editable (see module
+    docstring)."""
+    return _ESCALA_FULL_BLOCK
+
+
+def model_config() -> dict:
+    """Model/token settings used for every chat turn — read-only display value."""
+    return {"model": _CLAUDE_MODEL, "max_tokens": _MAX_TOKENS}
 
 
 def _build_context_section(member_context: dict) -> str:
@@ -245,6 +371,8 @@ def build_chat_request(
     messages: list[dict],
     role: dict | None = None,
     member_context: dict | None = None,
+    sections: dict[str, str] | None = None,
+    forbidden_words: list[str] | None = None,
 ) -> dict:
     """Assemble the complete Anthropic Messages API request body (no I/O).
 
@@ -252,10 +380,12 @@ def build_chat_request(
     or None if the member's role has no catalog entry.
 
     `member_context` — squad nome, membro nome, senioridade and competência, or None.
-    Purely data-driven, no I/O: the caller resolves both from the database before
-    calling this function.
+
+    `sections`/`forbidden_words` — admin-editable prompt content, resolved by the
+    caller from `tl_evaluation_prompt_repository` (or omitted to fall back to
+    today's shipped defaults). Purely data-driven, no I/O in this function.
     """
-    system = _SYSTEM_PROMPT
+    system = build_system_prompt(sections, forbidden_words)
     if member_context is not None:
         system = system + _build_context_section(member_context)
     if role is not None:
@@ -270,7 +400,7 @@ def build_chat_request(
     }
 
 
-def parse_tool_response(response: dict) -> dict:
+def parse_tool_response(response: dict, forbidden_words: list[str] | None = None) -> dict:
     """Convert a raw Anthropic Messages API response into a structured chat turn.
 
     Returns either:
@@ -278,7 +408,9 @@ def parse_tool_response(response: dict) -> dict:
       {"type": "propose_evaluation", "comportamental_nota": int, ...}
 
     Raises ValueError if no tool_use block is found or paragraphs violate the
-    voice rule.
+    voice rule. `forbidden_words` must be the same list used to render the
+    prompt for this turn (via `build_chat_request`) — passing a different list
+    here would let the validator drift from what the model was actually told.
     """
     for block in response.get("content", []):
         if block.get("type") != "tool_use":
@@ -288,13 +420,14 @@ def parse_tool_response(response: dict) -> dict:
         if name == "ask_question":
             return {"type": "ask_question", "question": inp["question"]}
         if name == "propose_evaluation":
-            _check_voice_rule(inp)
+            _check_voice_rule(inp, forbidden_words)
             return {"type": "propose_evaluation", **inp}
     raise ValueError("Nenhum bloco tool_use encontrado na resposta da API")
 
 
-def _check_voice_rule(evaluation: dict) -> None:
+def _check_voice_rule(evaluation: dict, forbidden_words: list[str] | None = None) -> None:
     """Raise ValueError if any paragraph field contains forbidden narration markers."""
+    markers = forbidden_words if forbidden_words is not None else _FORBIDDEN_VOICE_MARKERS
     paragraph_fields = (
         "comportamental_paragrafo",
         "tecnica_paragrafo",
@@ -302,7 +435,7 @@ def _check_voice_rule(evaluation: dict) -> None:
     )
     for field in paragraph_fields:
         text = evaluation.get(field) or ""
-        for marker in _FORBIDDEN_VOICE_MARKERS:
+        for marker in markers:
             if marker in text:
                 raise ValueError(
                     f"Parágrafo '{field}' contém marcador de narração proibido: '{marker}'"

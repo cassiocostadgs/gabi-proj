@@ -428,19 +428,51 @@ WeasyPrint is auto-installed at runtime following the same pattern already used 
 
 ---
 
+## Prompt ownership and admin editing
+
+Full design rationale in [`.agents/specs/003-tl-evaluation-prompt-admin/spec.md`](../../specs/003-tl-evaluation-prompt-admin/spec.md). Summary of the shipped behavior:
+
+The admin is the declared **owner** of the AI evaluation prompt. Every part of it is visible to the admin (nothing is opaque source code they can't see), and most of it is editable **without a deploy** — but not uniformly, and not via free text everywhere. The system prompt is composed at request time from:
+
+1. **Six admin-editable sections** (`tl_evaluation_engine.EDITABLE_SECTION_KEYS`: `papel`, `fluxo`, `gateA`, `gateB`, `regras`, `instrucao`) plus a seventh, `adicionais` (an open-ended addendum appended last, empty by default) — stored as rows in `tl_evaluation_prompt_sections`, one row per key. `gateA`, `gateB`, and `regras` are additionally **versioned**: every overwrite snapshots the previous value to `tl_evaluation_prompt_section_history` before saving, because they encode calibration policy with **no code-side enforcement** — a weakened edit degrades scoring silently, and this policy attaches to real people's monthly records, so admins need to reconstruct what a rule said at any past date.
+2. **The *Escala de referência* block** — hardcoded, never editable, exposed read-only via `tl_evaluation_engine.escala_reference_text()`. The 1–5 range is coupled to the `propose_evaluation` tool schema's `minimum`/`maximum` and to `tl_evaluations`' `INTEGER` columns; changing it is a structural change (effectively a new scoring model), not a content edit.
+3. **The *Regra de voz* forbidden-words list** — **not free text**. `tl_evaluation_voice_forbidden_words` is a structured list (seeded with `"TL"`, `"relato"`, `"reportou"`) that is the single source read both by the rendered prompt text (`_render_voz_body()`) and by `_check_voice_rule()`'s post-hoc validation. This is deliberately different from the other sections: the prose is the literal human-readable form of a value also enforced in code, so letting it drift into independent free text risks the prompt telling the model one thing while the validator enforces another — up to and including a runtime `ValueError` that breaks an in-progress evaluation. Admins add/remove individual words (min. 3 characters, no duplicates) instead of editing prose.
+
+`tl_evaluation_engine.py` stays pure per the module's own invariant (no I/O) — `build_system_prompt(sections, forbidden_words)`, `build_chat_request(..., sections=, forbidden_words=)`, and `_check_voice_rule(evaluation, forbidden_words)` all take this data as plain arguments (defaulting to today's shipped values when omitted, e.g. in unit tests) rather than reading the database themselves. The DB reads live in `tl_evaluation_prompt_repository.py`, called once per chat turn from `tl_chat()` and once per preview from `admin_preview_prompt()` — both resolve the same `sections`/`forbidden_words` shape before calling into the engine.
+
+**Fidelity guarantee:** `_DEFAULT_SECTIONS` (the seed values written to the DB on first run) are *derived by slicing* the module's own literal `_SYSTEM_PROMPT` / `_FORBIDDEN_VOICE_MARKERS` constants at import time — never hand-retyped. `build_system_prompt()` called with no arguments must remain byte-identical to `_SYSTEM_PROMPT` (see `TestDefaultsReproduceLegacyPromptExactly` in `tests/test_tl_evaluation_engine.py`); if a future edit to this module breaks that equality, it means the split/rejoin logic diverged from the literal prompt, not that the literal prompt itself needs re-typing anywhere.
+
+**No TL-facing surface exists for any of this** — no route, no UI element. The TL only experiences the prompt's *effect* (different probing questions, different tone), never its configuration. "Número máximo de rodadas de pergunta" (fixed at 2, embedded in the `fluxo` section's prose) was explicitly evaluated and **not** promoted to a separate numeric setting in this round.
+
+Admin endpoints (all `AdminUser`-guarded, no TL-ownership check needed since none of this is squad-scoped):
+
+| Endpoint | Behavior |
+|---|---|
+| `GET /api/admin/tl-evaluation-prompt` | All sections (content + `updated_by`/`updated_at`), `escala_referencia`, `forbidden_words`, `model`, `max_tokens`. |
+| `PUT /api/admin/tl-evaluation-prompt/sections/{section_key}` | Updates one section; `404` for `escala`, `voz`, or any unrecognized key. |
+| `GET /api/admin/tl-evaluation-prompt/sections/{section_key}/history` | Oldest-first list of prior values (accepts `voz` too — full word-list snapshots, not diffs). |
+| `POST /api/admin/tl-evaluation-prompt/voice-words` | Adds a forbidden word; `422` on duplicate or <3 characters. |
+| `DELETE /api/admin/tl-evaluation-prompt/voice-words/{palavra}` | Removes a forbidden word. |
+| `GET /api/admin/tl-evaluation-prompt/preview?squad_id=&squad_member_id=&competencia=` | Returns the exact `system` string a real chat turn for that evaluation would send — reuses the same role/context resolution as `tl_chat()` via `_resolve_role_and_context()`. **Never calls the Anthropic API.** |
+
+---
+
 ## Module layout
 
 | File | Role |
 |---|---|
-| `web/tl_evaluation_engine.py` | Pure engine — `build_system_prompt()`, `get_tools()`, `build_chat_request(messages)` |
+| `web/tl_evaluation_engine.py` | Pure engine — `build_system_prompt(sections=, forbidden_words=)`, `get_tools()`, `build_chat_request(messages, ..., sections=, forbidden_words=)`, `escala_reference_text()`, `model_config()`, `default_sections()`, `default_forbidden_words()` |
 | `web/core/anthropic_client.py` | Thin LLM client — `complete(request: dict) -> dict`; reads `ANTHROPIC_API_KEY` |
 | `web/repositories/squad_repository.py` | Squad and member CRUD; `is_squad_tl()` |
 | `web/repositories/tl_evaluation_repository.py` | Evaluation persistence and history queries; closure management |
+| `web/repositories/tl_evaluation_prompt_repository.py` | Admin-editable prompt sections, section history, and the forbidden-voice-words list; `seed_defaults(conn)` called once from `_init_db()` |
 | `web/tl_evaluation_pdf.py` | PDF generation (WeasyPrint) |
-| `tests/test_tl_evaluation_engine.py` | Unit tests for the pure engine (no network calls) |
-| `tests/test_tl_squads.py` | Integration tests for all endpoints (FastAPI TestClient, in-memory SQLite) |
-| `frontend/src/services/tl-evaluation.service.ts` | All API access functions for this domain |
+| `tests/test_tl_evaluation_engine.py` | Unit tests for the pure engine (no network calls), including the byte-identical defaults guarantee |
+| `tests/test_tl_squads.py` | Integration tests for squad/member/evaluation endpoints (FastAPI TestClient, in-memory SQLite) |
+| `tests/test_tl_evaluation_prompt_admin.py` | Integration tests for all prompt-admin endpoints |
+| `frontend/src/services/tl-evaluation.service.ts` | All API access functions for this domain, including the prompt-admin endpoints |
 | `frontend/src/pages/admin/sections/SquadsSection.tsx` | Admin squad CRUD + TL assignment + read-only member view |
+| `frontend/src/pages/admin/sections/TlEvaluationPromptSection.tsx` | Admin-only prompt visibility/editing screen: núcleo estrutural, instruções adicionais, simulador |
 | `frontend/src/pages/tl/TlSquadsPage.tsx` | TL-scoped page: membership, historico, chat, closure, PDF |
 
 ---

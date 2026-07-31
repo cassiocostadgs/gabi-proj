@@ -27,6 +27,7 @@ import { TaskEntriesSection } from './sections/TaskEntriesSection'
 import { AvaliacaoClienteSection } from './sections/AvaliacaoClienteSection'
 import { SquadsSection } from './sections/SquadsSection'
 import { RolesSection } from './sections/RolesSection'
+import { TlEvaluationPromptSection } from './sections/TlEvaluationPromptSection'
 import axios from 'axios'
 
 const MONTHS_PT: Record<string, string> = {
@@ -582,6 +583,8 @@ export function AdminPage() {
         return <SquadsSection />
       case 'tl-roles':
         return <RolesSection />
+      case 'tl-prompt-settings':
+        return <TlEvaluationPromptSection />
       default:
         return <TaskSection />
     }

@@ -311,3 +311,34 @@ export interface SquadCompetenciaStatus {
   closedAt?: string
   closedBy?: string
 }
+
+// ── TL Evaluation — prompt admin (003-tl-evaluation-prompt-admin) ─────────────
+
+export type PromptSectionKey =
+  | 'papel'
+  | 'fluxo'
+  | 'gateA'
+  | 'gateB'
+  | 'regras'
+  | 'instrucao'
+  | 'adicionais'
+
+export interface PromptSection {
+  content: string
+  updatedBy: string
+  updatedAt: string
+}
+
+export interface PromptSectionHistoryEntry {
+  content: string
+  changedBy: string
+  changedAt: string
+}
+
+export interface PromptSettings {
+  sections: Record<PromptSectionKey, PromptSection>
+  escalaReferencia: string
+  forbiddenWords: string[]
+  model: string
+  maxTokens: number
+}
