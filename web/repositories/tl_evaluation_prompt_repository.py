@@ -17,6 +17,8 @@ from db import _db
 
 MIN_FORBIDDEN_WORD_LENGTH = 3
 
+_SELECT_VOICE_WORDS = "SELECT palavra FROM tl_evaluation_voice_forbidden_words ORDER BY id"
+
 
 def seed_defaults(conn) -> None:
     """Populate sections and forbidden words with today's shipped defaults.
@@ -110,16 +112,12 @@ def get_section_history(section_key: str) -> list[dict]:
 
 def get_forbidden_words() -> list[str]:
     with _db() as conn:
-        rows = conn.execute(
-            "SELECT palavra FROM tl_evaluation_voice_forbidden_words ORDER BY id"
-        ).fetchall()
+        rows = conn.execute(_SELECT_VOICE_WORDS).fetchall()
     return [r["palavra"] for r in rows]
 
 
 def _snapshot_voice_words(conn, user_email: str) -> None:
-    current = [r["palavra"] for r in conn.execute(
-        "SELECT palavra FROM tl_evaluation_voice_forbidden_words ORDER BY id"
-    ).fetchall()]
+    current = [r["palavra"] for r in conn.execute(_SELECT_VOICE_WORDS).fetchall()]
     conn.execute(
         "INSERT INTO tl_evaluation_prompt_section_history (section_key, content, changed_by)"
         " VALUES ('voz', ?, ?)",
@@ -133,9 +131,7 @@ def add_forbidden_word(palavra: str, user_email: str) -> list[str]:
     word common enough to make `_check_voice_rule` reject most evaluations."""
     palavra = palavra.strip()
     if len(palavra) < MIN_FORBIDDEN_WORD_LENGTH:
-        raise ValueError(
-            f"Palavra deve ter ao menos {MIN_FORBIDDEN_WORD_LENGTH} caracteres"
-        )
+        raise ValueError(f"Palavra deve ter ao menos {MIN_FORBIDDEN_WORD_LENGTH} caracteres")
     with _db() as conn:
         existing = conn.execute(
             "SELECT 1 FROM tl_evaluation_voice_forbidden_words WHERE palavra = ?",
@@ -148,9 +144,7 @@ def add_forbidden_word(palavra: str, user_email: str) -> list[str]:
             "INSERT INTO tl_evaluation_voice_forbidden_words (palavra, created_by) VALUES (?, ?)",
             (palavra, user_email),
         )
-        rows = conn.execute(
-            "SELECT palavra FROM tl_evaluation_voice_forbidden_words ORDER BY id"
-        ).fetchall()
+        rows = conn.execute(_SELECT_VOICE_WORDS).fetchall()
     return [r["palavra"] for r in rows]
 
 
@@ -160,7 +154,5 @@ def remove_forbidden_word(palavra: str, user_email: str) -> list[str]:
         conn.execute(
             "DELETE FROM tl_evaluation_voice_forbidden_words WHERE palavra = ?", (palavra,)
         )
-        rows = conn.execute(
-            "SELECT palavra FROM tl_evaluation_voice_forbidden_words ORDER BY id"
-        ).fetchall()
+        rows = conn.execute(_SELECT_VOICE_WORDS).fetchall()
     return [r["palavra"] for r in rows]

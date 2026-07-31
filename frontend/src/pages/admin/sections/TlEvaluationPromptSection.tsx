@@ -1,15 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  MessageSquareText,
-  Lock,
-  Pencil,
-  Check,
-  X,
-  History,
-  Plus,
-  Play,
-} from 'lucide-react'
+import { MessageSquareText, Lock, Pencil, Check, X, History, Plus, Play } from 'lucide-react'
 import { Spinner } from '../../../components/Spinner'
 import { tlEvaluationService } from '../../../services/tl-evaluation.service'
 import type { PromptSectionKey } from '../../../types'
@@ -26,9 +17,12 @@ const SECTION_LABELS: Record<PromptSectionKey, string> = {
   adicionais: 'Instruções adicionais',
 }
 
-const VERSIONED_SECTIONS: PromptSectionKey[] = ['gateA', 'gateB', 'regras']
+const VERSIONED_SECTIONS: Set<PromptSectionKey> = new Set(['gateA', 'gateB', 'regras'])
 
-function Badge({ children, tone }: Readonly<{ children: ReactNode; tone: 'locked' | 'editable' | 'structured' }>) {
+function Badge({
+  children,
+  tone,
+}: Readonly<{ children: ReactNode; tone: 'locked' | 'editable' | 'structured' }>) {
   const classes = {
     locked: 'bg-slate-800/60 text-slate-400 border-slate-600',
     editable: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
@@ -66,7 +60,10 @@ function HistoryPanel({ sectionKey }: Readonly<{ sectionKey: PromptSectionKey | 
   return (
     <div className="border-t border-dashed border-slate-700 pt-3 mt-3 space-y-2">
       {[...history].reverse().map((entry, i) => (
-        <div key={`${entry.changedAt}-${i}`} className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2">
+        <div
+          key={`${entry.changedAt}-${i}`}
+          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2"
+        >
           <p className="text-[11px] text-slate-500 mb-1">
             <strong className="text-slate-400 font-semibold">{entry.changedBy}</strong> ·{' '}
             {entry.changedAt}
@@ -276,9 +273,9 @@ function VoiceRuleCard({ words }: Readonly<{ words: string[] }>) {
       {error && <p className="text-xs text-red-400 mb-2">{error}</p>}
 
       <div className="bg-blue-950/20 border border-blue-800/30 text-blue-300 rounded-lg px-3 py-2.5 text-xs leading-relaxed mt-3">
-        Esta lista é a única fonte de verdade: alimenta tanto o texto do prompt quanto o
-        validador pós-resposta (<code>_check_voice_rule</code>). Adicionar ou remover uma palavra
-        aqui atualiza os dois lados — sem risco de divergência.
+        Esta lista é a única fonte de verdade: alimenta tanto o texto do prompt quanto o validador
+        pós-resposta (<code>_check_voice_rule</code>). Adicionar ou remover uma palavra aqui
+        atualiza os dois lados — sem risco de divergência.
       </div>
 
       <button
@@ -441,8 +438,8 @@ export function TlEvaluationPromptSection() {
         </h2>
       </div>
       <p className="text-xs text-slate-500 mb-4 max-w-2xl">
-        Visibilidade do que é enviado à API do Claude e ajuste pontual, sem deploy. Acesso
-        exclusivo do admin — o TL nunca vê esta tela.
+        Visibilidade do que é enviado à API do Claude e ajuste pontual, sem deploy. Acesso exclusivo
+        do admin — o TL nunca vê esta tela.
       </p>
 
       <div className="flex gap-0 border-b border-slate-700 mb-5">
@@ -495,21 +492,21 @@ export function TlEvaluationPromptSection() {
                 content={settings.sections.gateA.content}
                 updatedBy={settings.sections.gateA.updatedBy}
                 updatedAt={settings.sections.gateA.updatedAt}
-                versioned={VERSIONED_SECTIONS.includes('gateA')}
+                versioned={VERSIONED_SECTIONS.has('gateA')}
               />
               <EditableSectionCard
                 sectionKey="gateB"
                 content={settings.sections.gateB.content}
                 updatedBy={settings.sections.gateB.updatedBy}
                 updatedAt={settings.sections.gateB.updatedAt}
-                versioned={VERSIONED_SECTIONS.includes('gateB')}
+                versioned={VERSIONED_SECTIONS.has('gateB')}
               />
               <EditableSectionCard
                 sectionKey="regras"
                 content={settings.sections.regras.content}
                 updatedBy={settings.sections.regras.updatedBy}
                 updatedAt={settings.sections.regras.updatedAt}
-                versioned={VERSIONED_SECTIONS.includes('regras')}
+                versioned={VERSIONED_SECTIONS.has('regras')}
               />
               <VoiceRuleCard words={settings.forbiddenWords} />
               <EditableSectionCard
@@ -526,8 +523,8 @@ export function TlEvaluationPromptSection() {
             <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
               <div className="px-5 py-4 flex items-center gap-2 text-xs text-slate-500">
                 <Lock size={12} />
-                Anexadas ao final do prompt, depois do núcleo estrutural. Vale a partir da
-                próxima interação do chat.
+                Anexadas ao final do prompt, depois do núcleo estrutural. Vale a partir da próxima
+                interação do chat.
               </div>
               <EditableSectionCard
                 sectionKey="adicionais"
