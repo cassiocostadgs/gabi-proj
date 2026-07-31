@@ -284,6 +284,11 @@ function useAvaliacaoTabController(squadId: number) {
     queryFn: () => tlEvaluationService.listMembers(squadId),
   })
 
+  const { data: roles = [] } = useQuery({
+    queryKey: ['tl-roles'],
+    queryFn: () => tlEvaluationService.listRoles(),
+  })
+
   const { data: confirmedEvals = [] } = useQuery({
     queryKey: ['tl-evaluations', squadId, competencia],
     queryFn: () => tlEvaluationService.listEvaluations(squadId, competencia),
@@ -311,6 +316,7 @@ function useAvaliacaoTabController(squadId: number) {
     selectedMemberId === null ? EMPTY_CHAT : (chatByMember[selectedMemberId] ?? EMPTY_CHAT)
 
   const selectedMember = members.find((m) => m.id === selectedMemberId)
+  const selectedRole = roles.find((r) => r.id === selectedMember?.roleId)
   const selectedMemberEval =
     selectedMemberId !== null && confirmedSet.has(selectedMemberId)
       ? confirmedEvals.find((e) => e.squadMemberId === selectedMemberId)
@@ -498,6 +504,7 @@ function useAvaliacaoTabController(squadId: number) {
     memberStatus,
     currentChat,
     selectedMember,
+    selectedRole,
     selectedMemberEval,
     selectedMemberId,
     setSelectedMemberId,
@@ -579,6 +586,7 @@ export function AvaliacaoTab({
       {c.selectedMember && (
         <EvaluationDrawer
           member={c.selectedMember}
+          role={c.selectedRole}
           competencia={c.competencia}
           isClosed={c.isClosed}
           confirmedEval={c.selectedMemberEval}

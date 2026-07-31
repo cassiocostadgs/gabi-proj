@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { EvaluationDrawer } from './EvaluationDrawer'
-import type { SquadMember } from '../../types'
+import type { Role, SquadMember } from '../../types'
 import type { MemberChatState } from './avaliacao-types'
 
 const member: SquadMember = {
@@ -15,8 +16,21 @@ const member: SquadMember = {
   active: true,
 }
 
+const role: Role = {
+  id: 1,
+  nome: 'Desenvolvedor',
+  descricao: 'Responsável por implementar e entregar o compromisso com qualidade.',
+  categoria: 'Entrega Técnica',
+  responsabilidades: [
+    { id: 1, descricao: 'Desenvolve e testa funcionalidades', principal: true, ordem: 0 },
+    { id: 2, descricao: 'Responsável por cumprir o DOD', principal: true, ordem: 1 },
+    { id: 3, descricao: 'Participa de revisões de código', principal: false, ordem: 2 },
+  ],
+}
+
 const baseProps = {
   member,
+  role: undefined,
   competencia: '2026-07',
   isClosed: false,
   confirmedEval: undefined,
@@ -84,5 +98,46 @@ describe('EvaluationDrawer — proposal visibility', () => {
     expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith(
       expect.not.objectContaining({ block: 'start' })
     )
+  })
+})
+
+describe('EvaluationDrawer — role attributions panel', () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+
+  const askingChat: MemberChatState = {
+    messages: [],
+    proposal: null,
+    error: null,
+    note: null,
+  }
+
+  it('starts collapsed and reveals principal responsibilities on toggle', async () => {
+    const user = userEvent.setup()
+    render(<EvaluationDrawer {...baseProps} role={role} chat={askingChat} />)
+
+    expect(screen.queryByText('Desenvolve e testa funcionalidades')).not.toBeInTheDocument()
+
+    await user.click(screen.getByText(/Atribuições do papel \(2 principais\)/i))
+
+    expect(screen.getByText('Desenvolve e testa funcionalidades')).toBeInTheDocument()
+    expect(screen.getByText('Responsável por cumprir o DOD')).toBeInTheDocument()
+    expect(screen.queryByText('Participa de revisões de código')).not.toBeInTheDocument()
+  })
+
+  it('reveals secondary responsibilities only after "Ver +N secundárias"', async () => {
+    const user = userEvent.setup()
+    render(<EvaluationDrawer {...baseProps} role={role} chat={askingChat} />)
+
+    await user.click(screen.getByText(/Atribuições do papel/i))
+    await user.click(screen.getByText(/Ver \+1 secundárias/i))
+
+    expect(screen.getByText('Participa de revisões de código')).toBeInTheDocument()
+  })
+
+  it('does not render the panel when the member has no matched role', () => {
+    render(<EvaluationDrawer {...baseProps} role={undefined} chat={askingChat} />)
+    expect(screen.queryByText(/Atribuições do papel/i)).not.toBeInTheDocument()
   })
 })

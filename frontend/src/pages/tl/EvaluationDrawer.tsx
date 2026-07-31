@@ -1,8 +1,8 @@
-import { useEffect, useRef, type ReactNode } from 'react'
-import { X, Send, Check, RotateCcw } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode, type TextareaHTMLAttributes } from 'react'
+import { X, Send, Check, RotateCcw, ChevronRight, Star } from 'lucide-react'
 import { Spinner } from '../../components/Spinner'
 import { competenciaLabel } from '../../lib/format'
-import type { ChatMessage, SquadMember, TlEvaluation } from '../../types'
+import type { ChatMessage, Role, SquadMember, TlEvaluation } from '../../types'
 import {
   DIMENSIONS,
   GATE_A_CHIPS,
@@ -92,6 +92,23 @@ function ReadOnlyCard({
   )
 }
 
+function AutoGrowTextarea({
+  value,
+  className,
+  ...rest
+}: Readonly<TextareaHTMLAttributes<HTMLTextAreaElement>>) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [value])
+
+  return <textarea ref={ref} value={value} className={className} {...rest} />
+}
+
 function ProposalCard({
   proposal,
   isConfirming,
@@ -122,11 +139,11 @@ function ProposalCard({
             </div>
             <div className="flex gap-2 items-start">
               <ScoreSelector value={nota} onChange={(n) => onUpdate({ [notaKey]: n })} />
-              <textarea
+              <AutoGrowTextarea
                 value={proposal[paraKey] as string}
                 onChange={(e) => onUpdate({ [paraKey]: e.target.value })}
                 rows={3}
-                className="flex-1 bg-slate-950 border border-slate-600 rounded-lg text-xs text-slate-200 px-2.5 py-2 resize-none outline-none focus:border-blue-500 transition-colors"
+                className="flex-1 bg-slate-950 border border-slate-600 rounded-lg text-xs text-slate-200 px-2.5 py-2 resize-none outline-none focus:border-blue-500 transition-colors overflow-hidden"
               />
             </div>
           </div>
@@ -157,8 +174,61 @@ function ProposalCard({
   )
 }
 
+function RoleAttributions({ role }: Readonly<{ role: Role }>) {
+  const [open, setOpen] = useState(false)
+  const [showSecondary, setShowSecondary] = useState(false)
+  const principais = role.responsabilidades.filter((r) => r.principal)
+  const secundarias = role.responsabilidades.filter((r) => !r.principal)
+
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-slate-200 transition-colors"
+      >
+        <ChevronRight size={10} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
+        Atribuições do papel ({principais.length} principais)
+      </button>
+      {open && (
+        <div className="mt-1.5 flex flex-col gap-1">
+          {role.descricao && (
+            <p className="text-[11px] text-slate-500 leading-relaxed mb-0.5">{role.descricao}</p>
+          )}
+          {principais.map((r) => (
+            <div
+              key={r.id}
+              className="flex items-start gap-1.5 text-[11px] leading-relaxed text-amber-200 bg-amber-950/20 border border-amber-800/30 rounded-md px-2 py-1"
+            >
+              <Star size={10} className="fill-amber-400 text-amber-400 shrink-0 mt-0.5" />
+              <span>{r.descricao}</span>
+            </div>
+          ))}
+          {secundarias.length > 0 &&
+            (showSecondary ? (
+              secundarias.map((r) => (
+                <div key={r.id} className="text-[11px] text-slate-400 leading-relaxed px-2 py-0.5">
+                  {r.descricao}
+                </div>
+              ))
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowSecondary(true)}
+                className="self-start text-[11px] text-blue-400 hover:text-blue-300 underline underline-offset-2 mt-0.5"
+              >
+                Ver +{secundarias.length} secundárias
+              </button>
+            ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface Props {
   member: SquadMember
+  role: Role | undefined
   competencia: string
   isClosed: boolean
   confirmedEval: TlEvaluation | undefined
@@ -176,6 +246,7 @@ interface Props {
 
 export function EvaluationDrawer({
   member,
+  role,
   competencia,
   isClosed,
   confirmedEval,
@@ -335,16 +406,26 @@ export function EvaluationDrawer({
         onClick={onClose}
       />
       <div className="fixed right-0 top-0 h-full w-full max-w-2xl bg-slate-900 border-l border-slate-700 z-50 shadow-2xl flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
-          <div className="min-w-0">
+        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-700 shrink-0">
+          <div className="min-w-0 flex-1">
             <p className="font-semibold text-slate-100 text-sm truncate">{member.nome}</p>
-            <p className="text-xs text-slate-500 mt-0.5 truncate">
-              {member.papel} · {competenciaLabel(competencia)}
-            </p>
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              <span className="text-[13px] font-semibold text-slate-200 truncate">
+                {member.papel}
+              </span>
+              <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-blue-300 bg-blue-950/40 border border-blue-800/40 rounded px-1.5 py-0.5">
+                {member.senioridade}
+              </span>
+              <span className="text-xs text-slate-600">·</span>
+              <span className="text-xs text-slate-500 truncate">
+                {competenciaLabel(competencia)}
+              </span>
+            </div>
+            {role && role.responsabilidades.length > 0 && <RoleAttributions role={role} />}
           </div>
           <button
             onClick={onClose}
-            className="text-slate-500 hover:text-slate-300 transition-colors p-1"
+            className="text-slate-500 hover:text-slate-300 transition-colors p-1 mt-0.5 shrink-0"
           >
             <X size={18} />
           </button>
