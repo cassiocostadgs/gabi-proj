@@ -72,12 +72,14 @@ describe('EvaluationDrawer — proposal visibility', () => {
     Element.prototype.scrollIntoView = vi.fn()
   })
 
-  it('renders the ProposalCard once a proposal turn arrives', () => {
+  it('renders the proposal card once a proposal turn arrives, starting on the first dimension', () => {
     render(<EvaluationDrawer {...baseProps} chat={proposalChat} />)
     expect(
       screen.getByText(/Proposta de avaliação — revise antes de confirmar/i)
     ).toBeInTheDocument()
-    expect(screen.getByText(/Confirmar avaliação/i)).toBeInTheDocument()
+    expect(screen.getByText(/Etapa 1 de 3/i)).toBeInTheDocument()
+    expect(screen.getByText('Comportamental')).toBeInTheDocument()
+    expect(screen.queryByText(/Confirmar avaliação/i)).not.toBeInTheDocument()
   })
 
   it('scrolls to the top of the proposal card, not just the trailing marker', () => {
@@ -98,6 +100,52 @@ describe('EvaluationDrawer — proposal visibility', () => {
     expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith(
       expect.not.objectContaining({ block: 'start' })
     )
+  })
+})
+
+describe('EvaluationDrawer — proposal wizard', () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+
+  it('disables "Voltar" on the first dimension', () => {
+    render(<EvaluationDrawer {...baseProps} chat={proposalChat} />)
+    expect(screen.getByText('Voltar')).toBeDisabled()
+  })
+
+  it('steps through each dimension to reach the summary, revealing the confirm button', async () => {
+    const user = userEvent.setup()
+    render(<EvaluationDrawer {...baseProps} chat={proposalChat} />)
+
+    await user.click(screen.getByText(/Próximo/i))
+    expect(screen.getByText('Técnica')).toBeInTheDocument()
+    expect(screen.getByText(/Etapa 2 de 3/i)).toBeInTheDocument()
+
+    await user.click(screen.getByText(/Próximo/i))
+    expect(screen.getByText('Prazos de Entrega')).toBeInTheDocument()
+    expect(screen.getByText(/Etapa 3 de 3/i)).toBeInTheDocument()
+
+    await user.click(screen.getByText(/Próximo/i))
+    expect(screen.getByText(/Resumo/i)).toBeInTheDocument()
+    expect(screen.getByText(/Confirmar avaliação/i)).toBeInTheDocument()
+  })
+
+  it('lets the TL jump back to a dimension from the summary via "editar"', async () => {
+    const user = userEvent.setup()
+    render(<EvaluationDrawer {...baseProps} chat={proposalChat} />)
+
+    await user.click(screen.getByText(/Próximo/i))
+    await user.click(screen.getByText(/Próximo/i))
+    await user.click(screen.getByText(/Próximo/i))
+    expect(screen.getByText(/Resumo/i)).toBeInTheDocument()
+
+    const editButtons = screen.getAllByText('editar')
+    await user.click(editButtons[1]) // Técnica
+
+    expect(screen.getByText(/Etapa 2 de 3/i)).toBeInTheDocument()
+    expect(
+      screen.getByDisplayValue('Entregou a integração com qualidade.')
+    ).toBeInTheDocument()
   })
 })
 

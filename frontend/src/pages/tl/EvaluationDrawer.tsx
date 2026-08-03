@@ -25,24 +25,31 @@ function scoreBadgeCls(nota: number): string {
   return 'bg-red-500/10 border-red-500/30 text-red-400'
 }
 
-function ScoreSelector({
+function bigScaleActiveCls(n: number): string {
+  if (n >= 4) return 'bg-emerald-600 border-emerald-500 text-white'
+  if (n === 3) return 'bg-amber-600 border-amber-500 text-white'
+  return 'bg-red-600 border-red-500 text-white'
+}
+
+function BigScoreSelector({
   value,
   onChange,
 }: Readonly<{ value: number; onChange: (n: number) => void }>) {
   return (
-    <div className="flex gap-1">
+    <div className="flex gap-2">
       {[1, 2, 3, 4, 5].map((n) => (
         <button
           key={n}
           type="button"
           onClick={() => onChange(n)}
-          className={`w-8 h-8 rounded-lg text-sm font-bold transition-colors border ${
+          className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-lg border transition-colors ${
             value === n
-              ? 'bg-blue-700 text-white border-blue-500'
-              : 'bg-slate-800 text-slate-400 border-slate-600 hover:border-slate-500 hover:text-slate-200'
+              ? bigScaleActiveCls(n)
+              : 'bg-slate-950 border-slate-600 text-slate-400 hover:border-slate-500 hover:text-slate-200'
           }`}
         >
-          {n}
+          <span className="text-lg font-extrabold leading-none">{n}</span>
+          <span className="text-[10px] font-semibold leading-none">{CLASSIF[n]}</span>
         </button>
       ))}
     </div>
@@ -109,6 +116,40 @@ function AutoGrowTextarea({
   return <textarea ref={ref} value={value} className={className} {...rest} />
 }
 
+function ProposalSummaryRow({
+  dimension,
+  proposal,
+  onEdit,
+}: Readonly<{
+  dimension: (typeof DIMENSIONS)[number]
+  proposal: EvalProposal
+  onEdit: () => void
+}>) {
+  const nota = proposal[dimension.notaKey] as number
+  return (
+    <div className="border border-slate-700 rounded-lg px-3.5 py-3 bg-slate-900/40">
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-sm font-semibold text-slate-200">{dimension.label}</span>
+        <span
+          className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${scoreBadgeCls(nota)}`}
+        >
+          {nota} · {CLASSIF[nota]}
+        </span>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="ml-auto text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2"
+        >
+          editar
+        </button>
+      </div>
+      <p className="text-xs text-slate-400 leading-relaxed">
+        {proposal[dimension.paraKey] as string}
+      </p>
+    </div>
+  )
+}
+
 function ProposalCard({
   proposal,
   isConfirming,
@@ -120,55 +161,118 @@ function ProposalCard({
   onUpdate: (patch: Partial<EvalProposal>) => void
   onConfirm: () => void
 }>) {
+  const [step, setStep] = useState(0)
+  const onSummary = step >= DIMENSIONS.length
+  const current = DIMENSIONS[Math.min(step, DIMENSIONS.length - 1)]
+  const currentNota = proposal[current.notaKey] as number
+
   return (
     <div className="self-stretch bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
-      <div className="bg-slate-900/60 border-b border-slate-700 px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
-        Proposta de avaliação — revise antes de confirmar
+      <div className="bg-slate-900/60 border-b border-slate-700 px-4 py-2 flex items-center justify-between">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+          Proposta de avaliação — revise antes de confirmar
+        </span>
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-blue-300">
+          {onSummary ? 'Resumo' : `Etapa ${step + 1} de ${DIMENSIONS.length}`}
+        </span>
       </div>
-      {DIMENSIONS.map(({ label, notaKey, paraKey }) => {
-        const nota = proposal[notaKey] as number
-        return (
-          <div key={label} className="px-4 py-3 border-b border-slate-700/60">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-semibold text-slate-200">{label}</span>
-              <span
-                className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${scoreBadgeCls(nota)}`}
-              >
-                {nota} · {CLASSIF[nota]}
-              </span>
-            </div>
-            <div className="flex gap-2 items-start">
-              <ScoreSelector value={nota} onChange={(n) => onUpdate({ [notaKey]: n })} />
-              <AutoGrowTextarea
-                value={proposal[paraKey] as string}
-                onChange={(e) => onUpdate({ [paraKey]: e.target.value })}
-                rows={3}
-                className="flex-1 bg-slate-950 border border-slate-600 rounded-lg text-xs text-slate-200 px-2.5 py-2 resize-none outline-none focus:border-blue-500 transition-colors overflow-hidden"
-              />
-            </div>
-          </div>
-        )
-      })}
-      <div className="px-4 py-3 flex items-center justify-between bg-slate-900/40">
-        <label className="flex items-center gap-2 cursor-pointer w-fit">
-          <input
-            type="checkbox"
-            checked={proposal.janelaReduzida}
-            onChange={(e) => onUpdate({ janelaReduzida: e.target.checked })}
-            className="accent-blue-500"
+
+      <div className="flex gap-1 px-4 pt-3">
+        {DIMENSIONS.map((dim, i) => (
+          <div
+            key={dim.label}
+            className={`flex-1 h-1 rounded-full ${
+              i < step ? 'bg-emerald-500' : i === step ? 'bg-blue-600' : 'bg-slate-700'
+            }`}
           />
-          <span className="text-xs text-slate-400">
-            Janela reduzida (férias, licença, início tardio)
-          </span>
-        </label>
+        ))}
+        <div className={`flex-1 h-1 rounded-full ${onSummary ? 'bg-blue-600' : 'bg-slate-700'}`} />
+      </div>
+
+      {onSummary ? (
+        <div className="p-4 flex flex-col gap-3">
+          {DIMENSIONS.map((dim, i) => (
+            <ProposalSummaryRow
+              key={dim.label}
+              dimension={dim}
+              proposal={proposal}
+              onEdit={() => setStep(i)}
+            />
+          ))}
+          <label className="flex items-center gap-2 cursor-pointer w-fit">
+            <input
+              type="checkbox"
+              checked={proposal.janelaReduzida}
+              onChange={(e) => onUpdate({ janelaReduzida: e.target.checked })}
+              className="accent-blue-500"
+            />
+            <span className="text-xs text-slate-400">
+              Janela reduzida (férias, licença, início tardio)
+            </span>
+          </label>
+        </div>
+      ) : (
+        <div className="p-4 flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <span className="text-base font-bold text-slate-100">{current.label}</span>
+            <span className="text-xs text-slate-500 leading-relaxed">{current.pergunta}</span>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <BigScoreSelector
+              value={currentNota}
+              onChange={(n) => onUpdate({ [current.notaKey]: n })}
+            />
+            <span className="text-[11px] text-slate-500">
+              Selecionado: {CLASSIF[currentNota]}. Alterar a nota não reescreve o parecer
+              automaticamente.
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Parecer
+            </span>
+            <AutoGrowTextarea
+              value={proposal[current.paraKey] as string}
+              onChange={(e) => onUpdate({ [current.paraKey]: e.target.value })}
+              rows={6}
+              className="w-full bg-slate-950 border border-slate-600 rounded-lg text-xs text-slate-200 px-3 py-2.5 resize-none outline-none focus:border-blue-500 transition-colors overflow-hidden"
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="px-4 py-3 flex items-center gap-3 bg-slate-900/40 border-t border-slate-700">
         <button
-          onClick={onConfirm}
-          disabled={isConfirming}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+          type="button"
+          onClick={() => setStep((s) => Math.max(0, s - 1))}
+          disabled={step === 0}
+          className="px-3 py-1.5 rounded-lg border border-slate-600 text-slate-400 text-xs font-semibold hover:border-slate-500 hover:text-slate-200 disabled:opacity-35 disabled:pointer-events-none transition-colors"
         >
-          {isConfirming ? <Spinner size="sm" /> : <Check size={14} />}
-          Confirmar avaliação
+          Voltar
         </button>
+        <span className="text-[11px] text-slate-500">
+          {onSummary ? 'Tudo revisado.' : 'Ajuste a nota e o texto antes de avançar.'}
+        </span>
+        {onSummary ? (
+          <button
+            onClick={onConfirm}
+            disabled={isConfirming}
+            className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+          >
+            {isConfirming ? <Spinner size="sm" /> : <Check size={14} />}
+            Confirmar avaliação
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setStep((s) => Math.min(DIMENSIONS.length, s + 1))}
+            className="ml-auto px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors"
+          >
+            Próximo →
+          </button>
+        )}
       </div>
     </div>
   )
@@ -375,6 +479,7 @@ export function EvaluationDrawer({
         {chat.proposal && (
           <div ref={proposalRef} className="self-stretch">
             <ProposalCard
+              key={chat.messages.length}
               proposal={chat.proposal}
               isConfirming={isConfirming}
               onUpdate={onUpdateProposal}
@@ -390,7 +495,7 @@ export function EvaluationDrawer({
   let composerHint: string
   if (chat.proposal) {
     composerHint =
-      'Ajuste nota e parágrafo acima, depois confirme — ou adicione mais contexto aqui.'
+      'Revise a proposta acima etapa por etapa, depois confirme — ou adicione mais contexto aqui.'
   } else if (isAwaitingReply) {
     composerHint = 'Responda à pergunta da IA (ou use os botões, se houver).'
   } else {

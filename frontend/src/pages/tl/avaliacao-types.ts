@@ -27,12 +27,28 @@ export const EMPTY_CHAT: MemberChatState = {
 
 export const DIMENSIONS: Array<{
   label: string
+  pergunta: string
   notaKey: keyof EvalProposal
   paraKey: keyof EvalProposal
 }> = [
-  { label: 'Comportamental', notaKey: 'comportamentalNota', paraKey: 'comportamentalParagrafo' },
-  { label: 'Técnica', notaKey: 'tecnicaNota', paraKey: 'tecnicaParagrafo' },
-  { label: 'Prazos de Entrega', notaKey: 'prazoNota', paraKey: 'prazoParagrafo' },
+  {
+    label: 'Comportamental',
+    pergunta: 'Como ele se posicionou frente ao time, às prioridades e aos combinados?',
+    notaKey: 'comportamentalNota',
+    paraKey: 'comportamentalParagrafo',
+  },
+  {
+    label: 'Técnica',
+    pergunta: 'A execução técnica do mês dá evidência suficiente para o nível esperado do papel?',
+    notaKey: 'tecnicaNota',
+    paraKey: 'tecnicaParagrafo',
+  },
+  {
+    label: 'Prazos de Entrega',
+    pergunta: 'Os compromissos assumidos na sprint foram cumpridos dentro do combinado?',
+    notaKey: 'prazoNota',
+    paraKey: 'prazoParagrafo',
+  },
 ]
 
 // Heuristic mirror of the backend's Gate A prompt (web/tl_evaluation_engine.py) — when the
