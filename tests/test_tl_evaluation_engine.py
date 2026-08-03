@@ -86,6 +86,79 @@ class TestSystemPromptRules:
         prompt = engine.build_system_prompt()
         assert "1" in prompt and "5" in prompt
 
+    def test_calibration_guide_questions_present(self):
+        # Ported from the original avaliacao-mensal-tl skill — per-score-range
+        # guiding questions, bundled with the hardcoded escala block.
+        prompt = engine.build_system_prompt()
+        assert "Perguntas-guia para calibrar a nota" in prompt
+        assert "Nota 5" in prompt and "Nota 4" in prompt and "Nota 3" in prompt
+
+    def test_generation_rules_include_reciclagem_escopo_e_tom(self):
+        prompt = engine.build_system_prompt()
+        assert "Reciclagem com perspectiva" in prompt
+        assert "Escopo temporal" in prompt
+        assert "Tom neutro" in prompt
+
+    def test_generation_rules_forbid_character_labels_both_directions(self):
+        prompt = engine.build_system_prompt()
+        regras_section = prompt.split("## Regras de geração")[1].split("## Regra de voz")[0]
+        assert "Foco em comportamento" in regras_section
+        assert "é desorganizado" in regras_section  # negative label example
+        assert "é muito proativo" in regras_section  # positive label example
+
+    def test_gate_questions_are_exempt_from_the_lacuna_round_cap(self):
+        # The 2-round cap applies only to open-ended lacuna clarification —
+        # Gate A/B and the role gate must fire regardless of rounds already used.
+        prompt = engine.build_system_prompt()
+        fluxo_section = prompt.split("## Fluxo de trabalho")[1].split("## Gate A")[0]
+        assert "não contam no teto do passo" in fluxo_section
+
+    def test_gate_a_resolves_after_a_single_answer(self):
+        # Uncapped gates must still converge in one round — otherwise a model
+        # that misreads an ambiguous answer as "still lacking" could loop.
+        prompt = engine.build_system_prompt()
+        gate_a_section = prompt.split("## Gate A")[1].split("## Gate B")[0]
+        assert "uma única vez por dimensão" in gate_a_section
+        assert "nunca repita a mesma pergunta de Gate A" in gate_a_section
+
+    def test_gate_b_resolves_after_a_single_answer(self):
+        prompt = engine.build_system_prompt()
+        gate_b_section = prompt.split("## Gate B")[1].split("## Regras de geração")[0]
+        assert "uma única vez por afirmação" in gate_b_section
+        assert "nunca repita a mesma pergunta de Gate B" in gate_b_section
+
+    def test_instrucao_de_resposta_mentions_role_gate(self):
+        prompt = engine.build_system_prompt()
+        instrucao_section = prompt.split("## Instrução de resposta")[1]
+        assert "responsabilidade principal do papel avaliado" in instrucao_section
+
+    def test_fluxo_includes_internal_checkpoint_before_tool_calls(self):
+        prompt = engine.build_system_prompt()
+        fluxo_section = prompt.split("## Fluxo de trabalho")[1].split("## Gate A")[0]
+        assert "checagem interna rápida" in fluxo_section
+        assert "contando as próprias perguntas anteriores no histórico" in fluxo_section
+
+    def test_instrucao_includes_worked_example(self):
+        prompt = engine.build_system_prompt()
+        instrucao_section = prompt.split("## Instrução de resposta")[1]
+        assert "Exemplo completo" in instrucao_section
+        assert "nunca reutilize estes fatos" in instrucao_section
+        assert "ask_question" in instrucao_section
+        assert "propose_evaluation" in instrucao_section
+
+
+class TestRoleSectionGateConvergence:
+    def test_role_gate_resolves_after_a_single_answer(self):
+        role = {
+            "nome": "Tech Lead",
+            "descricao": "Responsável pelo 'como'.",
+            "responsabilidades": [{"descricao": "Escreve a DOD", "principal": 1}],
+        }
+        req = engine.build_chat_request([], role=role)
+        role_section = req["system"].split("## Papel avaliado")[1]
+        assert "uma única vez por responsabilidade" in role_section
+        assert "nunca repita a mesma pergunta sobre a mesma responsabilidade" in role_section
+
 
 # ── build_chat_request assembles the correct structure ───────────────────────
 

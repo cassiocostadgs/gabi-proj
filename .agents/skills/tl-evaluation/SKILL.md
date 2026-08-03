@@ -38,26 +38,40 @@ Every evaluation covers exactly three dimensions, always in this order:
 | Técnica | `tecnica` | 1–5 |
 | Prazos de Entrega | `prazo` | 1–5 |
 
-Score reference scale (calibration guidance encoded in the system prompt):
+Score reference scale (calibration guidance encoded in the system prompt, in the
+hardcoded, non-editable *Escala de referência* block alongside the range itself —
+ported from the original Cowork skill):
 - **1–2** — Insatisfatório
 - **3** — Regular
 - **4** — Bom
 - **5** — Excelente
 
+Per-range guiding questions (also in the same hardcoded block): nota 5 asks
+whether something recognized beyond the TL happened; nota 4 asks whether
+expectations were met without relevant caveats; nota 3 asks whether performance
+was unstable across the month; nota 1–2 asks whether performance stayed clearly
+below standard for most of the month. A 4-vs-5 or 2-vs-3 tie-break question is
+also encoded ("was there something recognized and confirmed beyond what was
+expected?" / "was there any period meeting the standard?").
+
 ### Gate A — Score-5 evidence requirement
 
-Whenever an evaluation is converging toward a score of 5 in any dimension, the engine **must** issue an `ask_question` turn requesting a concrete fact of overperformance recognized by someone beyond the TL themselves (e.g., PO, another team, client). Without that externally recognized fact, the maximum proposable score is 4. A `propose_evaluation` turn with `nota = 5` in any dimension is only valid when the preceding conversation contains such a fact.
+Whenever an evaluation is converging toward a score of 5 in any dimension, the engine **must** issue an `ask_question` turn requesting a concrete fact of overperformance recognized by someone beyond the TL themselves (e.g., PO, another team, client). Without that externally recognized fact, the maximum proposable score is 4. A `propose_evaluation` turn with `nota = 5` in any dimension is only valid when the preceding conversation contains such a fact. The gate is asked **at most once per dimension**: a positive answer supplies the fact for nota 5, a negative (or non-)answer resolves the gate at nota 4 immediately — the same Gate A question must never repeat for the same dimension, which is what makes an uncapped gate (see "Maximum clarifying question rounds" below) safe from looping.
 
 ### Gate B — Concrete example requirement
 
-Any generic positive claim without a concrete example ("é muito bom tecnicamente", "entrega sempre no prazo") **must** trigger an `ask_question` turn before the engine may issue a `propose_evaluation` turn. A `propose_evaluation` turn may only use evidence explicitly provided by the TL.
+Any generic positive claim without a concrete example ("é muito bom tecnicamente", "entrega sempre no prazo") **must** trigger an `ask_question` turn before the engine may issue a `propose_evaluation` turn. A `propose_evaluation` turn may only use evidence explicitly provided by the TL. The gate is asked **at most once per claim**: if the answer supplies the example, it is used; otherwise the generic claim is dropped and scoring falls back to whatever else is concrete — the same Gate B question must never repeat for the same claim.
 
 ### Generation rules (non-negotiable, encoded in the system prompt)
 
 - No invented examples — the engine never includes a fact not provided by the TL.
+- Recycling with perspective: the same fact may appear in two dimensions only if each paragraph explores a distinct angle (Comportamental: the behavior itself; Técnica: quality of what was delivered; Prazo: impact on sprint predictability). Identical-sounding paragraphs across dimensions signal recycling and must be rewritten with the correct angle.
 - Paragraph openings must be concrete and specific (never a generic reusable phrase).
+- Temporal scope: describe what happened this month — never next month's expectations.
 - No superlative without supporting evidence.
 - Genericidade test: if a paragraph could describe any person in any month, it is too generic and must be rewritten.
+- Neutral tone: negative points describe the behavior and its impact without unsupported intensity adverbs ("claramente", "sistematicamente") unless the TL explicitly reported recurrence.
+- Behavior over character judgment: describe the observable action and its impact, never a personality label about the person — in either direction ("é desorganizado" / "é muito proativo") without the underlying behavior. If a paragraph reduces to a personality adjective without losing information, rewrite it around the behavior that produced that impression.
 - Reduced observation window: when a member was absent for part of the month, the paragraph signals this with an asterisk and limits statements to the observed period.
 
 ### Voice and tone rule
@@ -66,7 +80,11 @@ Every paragraph in a `propose_evaluation` turn must be written in the TL's voice
 
 ### Maximum clarifying question rounds
 
-The engine targets at most 2 clarifying question rounds per evaluation session (inherited from the Cowork skill). After sufficient evidence accumulates, it converges to a `propose_evaluation` turn.
+The engine targets at most 2 clarifying question rounds per evaluation session for open-ended lacuna clarification (inherited from the Cowork skill). This cap does **not** apply to Gate A, Gate B, or the role-responsibility gate: those are mandatory and must trigger an `ask_question` turn whenever their condition is unmet, regardless of how many lacuna rounds have already been used — mirroring the original skill's sequential separation between lacuna complementation (capped) and gate checking (uncapped). After lacunas are addressed and every applicable gate is satisfied, the engine converges to a `propose_evaluation` turn.
+
+Every uncapped gate — including the role-responsibility gate (`_build_role_section`) — is asked **at most once per occurrence** (once per dimension for Gate A, once per claim for Gate B, once per missing principal responsibility for the role gate): whatever answer comes back, the gate resolves immediately (use the evidence, or fall back/proceed without it) and the same question is never repeated. This is what makes an uncapped gate safe from looping — the cap that would otherwise backstop it was deliberately removed from the "Fluxo de trabalho" section.
+
+The system prompt also carries a lightweight internal-reasoning step (not shown to the TL): before every tool call, the model checks per-dimension evidence, pending gates, and how many lacuna rounds have already been used in the message history — and a fully worked example (fictional TL narrative → `ask_question` → answer → `propose_evaluation` paragraph) demonstrating Gate B, the character-label rule, and the voice rule together. Both live in existing admin-editable sections (`fluxo` and `instrucao` respectively) rather than new section keys, to avoid a database migration for a new `tl_evaluation_prompt_sections` row.
 
 ---
 
