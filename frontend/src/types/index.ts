@@ -238,3 +238,107 @@ export interface ClientEvaluationDashboard extends EvaluationScoreRecord {
   user_email: string
   nome_extraido: string
 }
+
+// ── TL Evaluation domain ──────────────────────────────────────────────────────
+
+export interface Squad {
+  id: number
+  nome: string
+  techLeadUserEmail: string
+}
+
+export interface RoleResponsibility {
+  id: number
+  descricao: string
+  principal: boolean
+  ordem: number
+}
+
+export interface Role {
+  id: number
+  nome: string
+  descricao: string | null
+  categoria: string | null
+  responsabilidades: RoleResponsibility[]
+}
+
+export interface SquadMember {
+  id: number
+  squadId: number
+  nome: string
+  roleId: number
+  papel: string // role display name (joined from the catalog)
+  senioridade: string
+  fornecedor: string
+  active: boolean
+}
+
+export interface TlEvaluation {
+  id: number
+  squadMemberId: number
+  nome?: string
+  competencia: string
+  comportamentalNota: number
+  comportamentalParagrafo: string
+  tecnicaNota: number
+  tecnicaParagrafo: string
+  prazoNota: number
+  prazoParagrafo: string
+  status: 'confirmado'
+  confirmedBy: string
+  confirmedAt: string
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export type ChatTurn =
+  | { type: 'ask_question'; question: string }
+  | {
+      type: 'propose_evaluation'
+      comportamentalNota: number
+      comportamentalParagrafo: string
+      tecnicaNota: number
+      tecnicaParagrafo: string
+      prazoNota: number
+      prazoParagrafo: string
+    }
+
+export interface SquadCompetenciaStatus {
+  closed: boolean
+  closedAt?: string
+  closedBy?: string
+}
+
+// ── TL Evaluation — prompt admin (003-tl-evaluation-prompt-admin) ─────────────
+
+export type PromptSectionKey =
+  | 'papel'
+  | 'fluxo'
+  | 'gateA'
+  | 'gateB'
+  | 'regras'
+  | 'instrucao'
+  | 'adicionais'
+
+export interface PromptSection {
+  content: string
+  updatedBy: string
+  updatedAt: string
+}
+
+export interface PromptSectionHistoryEntry {
+  content: string
+  changedBy: string
+  changedAt: string
+}
+
+export interface PromptSettings {
+  sections: Record<PromptSectionKey, PromptSection>
+  escalaReferencia: string
+  forbiddenWords: string[]
+  model: string
+  maxTokens: number
+}

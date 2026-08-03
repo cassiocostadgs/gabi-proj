@@ -1,0 +1,90 @@
+{
+  "artifactLanguage": "en",
+  "workMode": "maintenance",
+  "discoveryAnswers": {
+    "systemType": "Busque as informações na pasta'/Users/tiagohlatki/Developer/GABI/CLAUDE.md'",
+    "scope": {
+      "type": "whole_project"
+    },
+    "restrictions": []
+  },
+  "domainIndex": [
+    {
+      "name": "Authentication",
+      "slug": "authentication",
+      "dependsOn": [],
+      "order": 0,
+      "documented": true,
+      "specified": true
+    },
+    {
+      "name": "Task Data Access",
+      "slug": "task-data-access",
+      "dependsOn": [
+        "authentication"
+      ],
+      "order": 1,
+      "documented": true,
+      "specified": true
+    },
+    {
+      "name": "GA Validation",
+      "slug": "ga-validation",
+      "dependsOn": [
+        "authentication",
+        "task-data-access"
+      ],
+      "order": 2,
+      "documented": true,
+      "specified": true
+    },
+    {
+      "name": "Submission Workflow",
+      "slug": "submission-workflow",
+      "dependsOn": [
+        "authentication",
+        "ga-validation",
+        "task-data-access"
+      ],
+      "order": 3,
+      "documented": true,
+      "specified": true
+    },
+    {
+      "name": "Team & Billing",
+      "slug": "team-billing",
+      "dependsOn": [
+        "authentication",
+        "submission-workflow"
+      ],
+      "order": 4,
+      "documented": true,
+      "specified": true
+    },
+    {
+      "name": "TL Evaluation",
+      "slug": "tl-evaluation",
+      "dependsOn": [
+        "authentication",
+        "team-billing"
+      ],
+      "order": 5,
+      "documented": false,
+      "specified": false
+    }
+  ],
+  "technicalSkillIndex": [],
+  "authoritativeDocsSource": {
+    "kind": "skills"
+  },
+  "implementedSpecs": [
+    {
+      "slug": "001-team-billing-client-evaluations",
+      "closedAt": "2026-07-14T13:00:19.678Z"
+    },
+    {
+      "slug": "002-tl-evaluation",
+      "closedAt": "2026-07-16T00:14:46.924Z"
+    }
+  ]
+}

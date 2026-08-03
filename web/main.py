@@ -34,8 +34,15 @@ from pydantic import BaseModel, Field
 load_dotenv()
 
 import client_evaluation_engine  # noqa: E402
+import core.anthropic_client as anthropic_client  # noqa: E402
 import gabi_engine  # noqa: E402
 import repositories.client_evaluation_repository as client_evaluation_repository  # noqa: E402
+import repositories.squad_repository as squad_repository  # noqa: E402
+import repositories.tl_evaluation_prompt_repository as tl_evaluation_prompt_repository  # noqa: E402
+import repositories.tl_evaluation_repository as tl_evaluation_repository  # noqa: E402
+import repositories.tl_evaluation_role_repository as tl_evaluation_role_repository  # noqa: E402
+import tl_evaluation_engine  # noqa: E402
+import tl_evaluation_pdf  # noqa: E402
 from core.oracle import is_oracle_configured, try_init_oracle_client  # noqa: E402
 from db import _db  # noqa: E402
 
@@ -48,6 +55,8 @@ USER_NOT_FOUND = "Usuário não encontrado"
 SUBMISSION_NOT_FOUND = "Submission não encontrada"
 MEMBER_NOT_FOUND = "Membro não encontrado"
 TASK_DB_ERROR = "Erro ao consultar Task DB"
+SQUAD_NOT_FOUND = "Squad não encontrada"
+_SELECT_IS_ADMIN_SQL = "SELECT is_admin FROM users WHERE email=?"
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -204,6 +213,107 @@ def _init_db() -> None:
               WHERE email_message_id IS NOT NULL
         """)
 
+        # ── TL Evaluation domain tables (in dependency order) ─────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tl_evaluation_roles (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome        TEXT    NOT NULL UNIQUE,
+                descricao   TEXT,
+                categoria   TEXT,
+                created_at  TIMESTAMP NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tl_evaluation_role_responsibilities (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                role_id     INTEGER NOT NULL REFERENCES tl_evaluation_roles(id),
+                descricao   TEXT    NOT NULL,
+                principal   INTEGER NOT NULL DEFAULT 0,
+                ordem       INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS squads (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome                 TEXT    NOT NULL UNIQUE,
+                tech_lead_user_email TEXT    NOT NULL UNIQUE,
+                created_at           TIMESTAMP NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS squad_members (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                squad_id    INTEGER NOT NULL REFERENCES squads(id),
+                nome        TEXT    NOT NULL,
+                role_id     INTEGER NOT NULL REFERENCES tl_evaluation_roles(id),
+                senioridade TEXT    NOT NULL,
+                fornecedor  TEXT    NOT NULL,
+                ativo       INTEGER NOT NULL DEFAULT 1,
+                created_at  TIMESTAMP NOT NULL DEFAULT (datetime('now')),
+                removed_at  TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tl_evaluations (
+                id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                squad_id                 INTEGER NOT NULL REFERENCES squads(id),
+                squad_member_id          INTEGER NOT NULL REFERENCES squad_members(id),
+                competencia              TEXT    NOT NULL,
+                comportamental_nota      INTEGER,
+                comportamental_paragrafo TEXT,
+                tecnica_nota             INTEGER,
+                tecnica_paragrafo        TEXT,
+                prazo_nota               INTEGER,
+                prazo_paragrafo          TEXT,
+                janela_reduzida          INTEGER NOT NULL DEFAULT 0,
+                status                   TEXT    NOT NULL DEFAULT 'rascunho',
+                confirmed_by             TEXT,
+                created_at               TIMESTAMP NOT NULL DEFAULT (datetime('now')),
+                confirmed_at             TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_tl_eval_member_competencia
+              ON tl_evaluations (squad_id, competencia, squad_member_id)
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS squad_competencia_closures (
+                squad_id    INTEGER NOT NULL REFERENCES squads(id),
+                competencia TEXT    NOT NULL,
+                closed_at   TIMESTAMP NOT NULL DEFAULT (datetime('now')),
+                closed_by   TEXT    NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_sqc_closure
+              ON squad_competencia_closures (squad_id, competencia)
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tl_evaluation_prompt_sections (
+                section_key TEXT PRIMARY KEY,
+                content     TEXT NOT NULL,
+                updated_by  TEXT NOT NULL,
+                updated_at  TIMESTAMP NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tl_evaluation_prompt_section_history (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                section_key  TEXT NOT NULL,
+                content      TEXT NOT NULL,
+                changed_by   TEXT NOT NULL,
+                changed_at   TIMESTAMP NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tl_evaluation_voice_forbidden_words (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                palavra    TEXT NOT NULL UNIQUE,
+                created_by TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+
         # Migrations for existing installs
         for ddl in [
             "ALTER TABLE task_uploads ADD COLUMN competencia TEXT NOT NULL DEFAULT ''",
@@ -228,6 +338,12 @@ def _init_db() -> None:
                 "UPDATE users SET is_admin=1 WHERE email=? AND is_admin=0",
                 (admin_email,),
             )
+
+        if not conn.execute("SELECT 1 FROM tl_evaluation_roles LIMIT 1").fetchone():
+            tl_evaluation_role_repository.seed_default_roles(conn)
+
+        if not conn.execute("SELECT 1 FROM tl_evaluation_prompt_sections LIMIT 1").fetchone():
+            tl_evaluation_prompt_repository.seed_defaults(conn)
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -258,7 +374,7 @@ def _current_user(token: Annotated[str, Depends(oauth2)]) -> str:
 
 def _admin_user(email: Annotated[str, Depends(_current_user)]) -> str:
     with _db() as conn:
-        row = conn.execute("SELECT is_admin FROM users WHERE email=?", (email,)).fetchone()
+        row = conn.execute(_SELECT_IS_ADMIN_SQL, (email,)).fetchone()
     if not row or not row["is_admin"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -291,7 +407,7 @@ async def login(form: Annotated[OAuth2PasswordRequestForm, Depends()]):
 @app.get("/auth/me")
 async def me(email: CurrentUser):
     with _db() as conn:
-        row = conn.execute("SELECT is_admin FROM users WHERE email=?", (email,)).fetchone()
+        row = conn.execute(_SELECT_IS_ADMIN_SQL, (email,)).fetchone()
     return {"email": email, "is_admin": bool(row["is_admin"]) if row else False}
 
 
@@ -1955,6 +2071,606 @@ async def integration_mag_evaluation(
 async def my_evaluations(email: CurrentUser):
     rows = client_evaluation_repository.get_my_evaluations(email)
     return {"evaluations": [_ce_row_to_dict(r) for r in rows]}
+
+
+# ── Routes: admin — squads (tl-evaluation domain) ────────────────────────────
+
+
+class CreateSquadRequest(BaseModel):
+    nome: str
+    tech_lead_user_email: str
+
+
+class UpdateSquadRequest(BaseModel):
+    nome: str | None = None
+    tech_lead_user_email: str | None = None
+
+
+def _validate_tech_lead_email(email: str) -> None:
+    """Raise 422 if the email is not registered in team_members or users."""
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM users WHERE email = ?"
+            " UNION ALL SELECT 1 FROM team_members WHERE user_email = ?",
+            (email, email),
+        ).fetchone()
+    if not row:
+        raise HTTPException(
+            status_code=422,
+            detail="tech_lead_user_email não corresponde a nenhum usuário cadastrado",
+        )
+
+
+@app.post(
+    "/api/admin/squads",
+    status_code=201,
+    responses={
+        422: {"description": "tech_lead_user_email não encontrado"},
+        409: {"description": "Nome ou TL já cadastrado"},
+    },
+)
+async def admin_create_squad(body: CreateSquadRequest, _: AdminUser):
+    _validate_tech_lead_email(body.tech_lead_user_email)
+    try:
+        row = squad_repository.create_squad(body.nome, body.tech_lead_user_email)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Nome de squad ou TL já cadastrado") from exc
+    return dict(row)
+
+
+@app.get("/api/admin/squads")
+async def admin_list_squads(_: AdminUser):
+    rows = squad_repository.list_squads()
+    return {"squads": [dict(r) for r in rows]}
+
+
+@app.put(
+    "/api/admin/squads/{squad_id}",
+    responses={
+        404: {"description": SQUAD_NOT_FOUND},
+        409: {"description": "Nome de squad ou TL já cadastrado"},
+        422: {"description": "tech_lead_user_email não encontrado"},
+    },
+)
+async def admin_update_squad(squad_id: int, body: UpdateSquadRequest, _: AdminUser):
+    with _db() as conn:
+        existing = conn.execute("SELECT 1 FROM squads WHERE id = ?", (squad_id,)).fetchone()
+    if not existing:
+        raise HTTPException(status_code=404, detail=SQUAD_NOT_FOUND)
+    fields = body.model_dump(exclude_unset=True)
+    if "tech_lead_user_email" in fields:
+        _validate_tech_lead_email(fields["tech_lead_user_email"])
+    try:
+        if fields:
+            squad_repository.update_squad(squad_id, fields)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Nome de squad ou TL já cadastrado") from exc
+    with _db() as conn:
+        row = conn.execute("SELECT * FROM squads WHERE id = ?", (squad_id,)).fetchone()
+    return dict(row)
+
+
+@app.get(
+    "/api/admin/squads/{squad_id}/members",
+    responses={
+        404: {"description": SQUAD_NOT_FOUND},
+    },
+)
+async def admin_list_squad_members(squad_id: int, _: AdminUser):
+    with _db() as conn:
+        squad = conn.execute("SELECT 1 FROM squads WHERE id = ?", (squad_id,)).fetchone()
+    if not squad:
+        raise HTTPException(status_code=404, detail=SQUAD_NOT_FOUND)
+    rows = squad_repository.list_squad_members_admin(squad_id)
+    return {"members": [dict(r) for r in rows]}
+
+
+# ── Routes: role catalog (tl-evaluation domain) ──────────────────────────────
+
+ROLE_NOT_FOUND = "Papel não encontrado"
+
+
+class CreateRoleRequest(BaseModel):
+    nome: str
+    descricao: str | None = None
+    categoria: str | None = None
+
+
+class UpdateRoleRequest(BaseModel):
+    nome: str | None = None
+    descricao: str | None = None
+    categoria: str | None = None
+
+
+class CreateResponsibilityRequest(BaseModel):
+    descricao: str
+    principal: bool = False
+    ordem: int = 0
+
+
+class UpdateResponsibilityRequest(BaseModel):
+    descricao: str | None = None
+    principal: bool | None = None
+    ordem: int | None = None
+
+
+@app.get("/api/tl-evaluation/roles")
+async def list_tl_evaluation_roles(email: CurrentUser):
+    """Read-only role catalog — any authenticated user (TLs need it to register members)."""
+    return {"roles": tl_evaluation_role_repository.list_roles()}
+
+
+@app.post(
+    "/api/admin/tl-evaluation/roles",
+    status_code=201,
+    responses={409: {"description": "Nome de papel já cadastrado"}},
+)
+async def admin_create_role(body: CreateRoleRequest, _: AdminUser):
+    try:
+        row = tl_evaluation_role_repository.create_role(body.nome, body.descricao, body.categoria)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Nome de papel já cadastrado") from exc
+    return dict(row)
+
+
+@app.patch(
+    "/api/admin/tl-evaluation/roles/{role_id}",
+    responses={
+        404: {"description": ROLE_NOT_FOUND},
+        409: {"description": "Nome de papel já cadastrado"},
+    },
+)
+async def admin_update_role(role_id: int, body: UpdateRoleRequest, _: AdminUser):
+    fields = body.model_dump(exclude_unset=True)
+    try:
+        if fields:
+            updated = tl_evaluation_role_repository.update_role(role_id, fields)
+            if updated == 0:
+                raise HTTPException(status_code=404, detail=ROLE_NOT_FOUND)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Nome de papel já cadastrado") from exc
+    role = tl_evaluation_role_repository.get_role(role_id)
+    if role is None:
+        raise HTTPException(status_code=404, detail=ROLE_NOT_FOUND)
+    return role
+
+
+@app.post(
+    "/api/admin/tl-evaluation/roles/{role_id}/responsibilities",
+    status_code=201,
+    responses={404: {"description": ROLE_NOT_FOUND}},
+)
+async def admin_add_responsibility(role_id: int, body: CreateResponsibilityRequest, _: AdminUser):
+    if tl_evaluation_role_repository.get_role(role_id) is None:
+        raise HTTPException(status_code=404, detail=ROLE_NOT_FOUND)
+    tl_evaluation_role_repository.add_responsibility(
+        role_id, body.descricao, body.principal, body.ordem
+    )
+    return tl_evaluation_role_repository.get_role(role_id)
+
+
+@app.patch(
+    "/api/admin/tl-evaluation/roles/{role_id}/responsibilities/{resp_id}",
+    responses={404: {"description": "Responsabilidade não encontrada"}},
+)
+async def admin_update_responsibility(
+    role_id: int, resp_id: int, body: UpdateResponsibilityRequest, _: AdminUser
+):
+    fields = body.model_dump(exclude_unset=True)
+    updated = tl_evaluation_role_repository.update_responsibility(resp_id, fields) if fields else 0
+    if fields and updated == 0:
+        raise HTTPException(status_code=404, detail="Responsabilidade não encontrada")
+    role = tl_evaluation_role_repository.get_role(role_id)
+    if role is None:
+        raise HTTPException(status_code=404, detail=ROLE_NOT_FOUND)
+    return role
+
+
+@app.delete(
+    "/api/admin/tl-evaluation/roles/{role_id}/responsibilities/{resp_id}",
+    responses={404: {"description": "Responsabilidade não encontrada"}},
+)
+async def admin_delete_responsibility(role_id: int, resp_id: int, _: AdminUser):
+    deleted = tl_evaluation_role_repository.delete_responsibility(resp_id)
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="Responsabilidade não encontrada")
+    role = tl_evaluation_role_repository.get_role(role_id)
+    if role is None:
+        raise HTTPException(status_code=404, detail=ROLE_NOT_FOUND)
+    return role
+
+
+# ── Routes: prompt settings (tl-evaluation domain) ───────────────────────────
+#
+# Admin-only visibility into and editing of the AI evaluation prompt — see
+# .agents/specs/003-tl-evaluation-prompt-admin/spec.md. No TL-scoped route
+# exists for any of this; the TL only experiences the prompt's effect.
+
+PROMPT_SECTION_NOT_FOUND = "Seção de prompt não editável ou inexistente"
+
+
+class UpdatePromptSectionRequest(BaseModel):
+    content: str
+
+
+class AddForbiddenWordRequest(BaseModel):
+    palavra: str
+
+
+def _resolve_role_and_context(squad_member_id: int, squad_id: int, competencia: str):
+    """Shared by `tl_chat` and the prompt preview endpoint — resolves the same
+    role/member_context shape from the same repositories, so the preview is
+    guaranteed to match what a real chat turn would actually send."""
+    member = squad_repository.get_member(squad_member_id)
+    role = tl_evaluation_role_repository.get_role(member["role_id"]) if member else None
+    member_context = None
+    if member is not None:
+        squad = squad_repository.get_squad(squad_id)
+        member_context = {
+            "squad_nome": squad["nome"] if squad else None,
+            "membro_nome": member["nome"],
+            "senioridade": member["senioridade"],
+            "competencia": competencia,
+        }
+    return role, member_context
+
+
+@app.get("/api/admin/tl-evaluation-prompt")
+async def admin_get_prompt(_: AdminUser):
+    return {
+        "sections": tl_evaluation_prompt_repository.get_sections(),
+        "escala_referencia": tl_evaluation_engine.escala_reference_text(),
+        "forbidden_words": tl_evaluation_prompt_repository.get_forbidden_words(),
+        **tl_evaluation_engine.model_config(),
+    }
+
+
+@app.put(
+    "/api/admin/tl-evaluation-prompt/sections/{section_key}",
+    responses={404: {"description": PROMPT_SECTION_NOT_FOUND}},
+)
+async def admin_update_prompt_section(
+    section_key: str, body: UpdatePromptSectionRequest, admin_email: AdminUser
+):
+    try:
+        row = tl_evaluation_prompt_repository.update_section(
+            section_key, body.content, admin_email
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=PROMPT_SECTION_NOT_FOUND) from exc
+    return row
+
+
+@app.get("/api/admin/tl-evaluation-prompt/sections/{section_key}/history")
+async def admin_get_prompt_section_history(section_key: str, _: AdminUser):
+    return {"history": tl_evaluation_prompt_repository.get_section_history(section_key)}
+
+
+@app.post(
+    "/api/admin/tl-evaluation-prompt/voice-words",
+    status_code=201,
+    responses={422: {"description": "Palavra inválida ou já cadastrada"}},
+)
+async def admin_add_forbidden_word(body: AddForbiddenWordRequest, admin_email: AdminUser):
+    try:
+        words = tl_evaluation_prompt_repository.add_forbidden_word(body.palavra, admin_email)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"forbidden_words": words}
+
+
+@app.delete("/api/admin/tl-evaluation-prompt/voice-words/{palavra}")
+async def admin_remove_forbidden_word(palavra: str, admin_email: AdminUser):
+    words = tl_evaluation_prompt_repository.remove_forbidden_word(palavra, admin_email)
+    return {"forbidden_words": words}
+
+
+@app.get(
+    "/api/admin/tl-evaluation-prompt/preview",
+    responses={404: {"description": MEMBER_NOT_FOUND}},
+)
+async def admin_preview_prompt(
+    squad_id: int, squad_member_id: int, competencia: str, _: AdminUser
+):
+    role, member_context = _resolve_role_and_context(squad_member_id, squad_id, competencia)
+    if member_context is None:
+        raise HTTPException(status_code=404, detail=MEMBER_NOT_FOUND)
+    request_body = tl_evaluation_engine.build_chat_request(
+        [],
+        role=role,
+        member_context=member_context,
+        sections=tl_evaluation_prompt_repository.get_section_contents(),
+        forbidden_words=tl_evaluation_prompt_repository.get_forbidden_words(),
+    )
+    return {"system": request_body["system"]}
+
+
+# ── Routes: TL squads and members (tl-evaluation domain) ─────────────────────
+
+
+class CreateMemberRequest(BaseModel):
+    nome: str
+    role_id: int
+    senioridade: str
+    fornecedor: str
+
+
+class UpdateMemberRequest(BaseModel):
+    nome: str | None = None
+    role_id: int | None = None
+    senioridade: str | None = None
+    fornecedor: str | None = None
+    ativo: bool | None = None
+
+
+class ChatRequest(BaseModel):
+    squad_id: int
+    competencia: str
+    squad_member_id: int
+    messages: list[dict]
+
+
+class ConfirmEvaluationRequest(BaseModel):
+    squad_id: int
+    competencia: str
+    squad_member_id: int
+    comportamental_nota: int
+    comportamental_paragrafo: str
+    tecnica_nota: int
+    tecnica_paragrafo: str
+    prazo_nota: int
+    prazo_paragrafo: str
+    janela_reduzida: bool
+
+
+def _is_admin(email: str) -> bool:
+    with _db() as conn:
+        row = conn.execute(_SELECT_IS_ADMIN_SQL, (email,)).fetchone()
+    return bool(row and row["is_admin"])
+
+
+def _require_tl_or_admin(email: str, squad_id: int) -> None:
+    if not (_is_admin(email) or squad_repository.is_squad_tl(email, squad_id)):
+        raise HTTPException(status_code=403)
+
+
+@app.get("/api/tl/squads")
+async def tl_list_my_squads(email: CurrentUser):
+    rows = squad_repository.list_tl_squads(email)
+    return {"squads": [dict(r) for r in rows]}
+
+
+def _validate_role_id(role_id: int) -> None:
+    """Raise 422 if role_id does not reference an existing catalog role."""
+    with _db() as conn:
+        row = conn.execute("SELECT 1 FROM tl_evaluation_roles WHERE id = ?", (role_id,)).fetchone()
+    if not row:
+        raise HTTPException(
+            status_code=422,
+            detail="role_id não corresponde a nenhum papel cadastrado no catálogo",
+        )
+
+
+@app.post(
+    "/api/tl/squads/{squad_id}/members",
+    status_code=201,
+    responses={403: {"description": "Acesso negado"}, 422: {"description": "role_id inválido"}},
+)
+async def tl_create_member(squad_id: int, body: CreateMemberRequest, email: CurrentUser):
+    _require_tl_or_admin(email, squad_id)
+    _validate_role_id(body.role_id)
+    row = squad_repository.create_member(
+        squad_id, body.nome, body.role_id, body.senioridade, body.fornecedor
+    )
+    return dict(row)
+
+
+@app.get(
+    "/api/tl/squads/{squad_id}/members",
+    responses={403: {"description": "Acesso negado"}},
+)
+async def tl_list_members(squad_id: int, email: CurrentUser, include_inactive: bool = False):
+    _require_tl_or_admin(email, squad_id)
+    rows = (
+        squad_repository.list_squad_members_admin(squad_id)
+        if include_inactive
+        else squad_repository.list_members(squad_id)
+    )
+    return {"members": [dict(r) for r in rows]}
+
+
+@app.patch(
+    "/api/tl/squads/{squad_id}/members/{member_id}",
+    responses={
+        403: {"description": "Acesso negado"},
+        404: {"description": MEMBER_NOT_FOUND},
+        422: {"description": "role_id inválido"},
+    },
+)
+async def tl_update_member(
+    squad_id: int, member_id: int, body: UpdateMemberRequest, email: CurrentUser
+):
+    _require_tl_or_admin(email, squad_id)
+    fields = body.model_dump(exclude_unset=True)
+    if "role_id" in fields:
+        _validate_role_id(fields["role_id"])
+    if "ativo" in fields:
+        fields["ativo"] = int(fields["ativo"])
+    updated = squad_repository.update_member(member_id, fields)
+    if updated == 0:
+        raise HTTPException(status_code=404, detail=MEMBER_NOT_FOUND)
+    row = squad_repository.get_member(member_id)
+    return dict(row)
+
+
+@app.get(
+    "/api/tl/squads/{squad_id}/historico",
+    responses={403: {"description": "Acesso negado"}},
+)
+async def tl_get_historico(squad_id: int, email: CurrentUser):
+    _require_tl_or_admin(email, squad_id)
+    rows = tl_evaluation_repository.get_historico(squad_id)
+    return {"historico": [dict(r) for r in rows]}
+
+
+# ── Routes: TL evaluations (tl-evaluation domain) ────────────────────────────
+
+
+@app.post(
+    "/api/tl-evaluations/chat",
+    responses={
+        403: {"description": "Acesso negado"},
+        502: {"description": "Resposta inválida da IA de avaliação"},
+        503: {"description": "Falha ao chamar a IA de avaliação"},
+    },
+)
+async def tl_chat(body: ChatRequest, email: CurrentUser):
+    _require_tl_or_admin(email, body.squad_id)
+    role, member_context = _resolve_role_and_context(
+        body.squad_member_id, body.squad_id, body.competencia
+    )
+    sections = tl_evaluation_prompt_repository.get_section_contents()
+    forbidden_words = tl_evaluation_prompt_repository.get_forbidden_words()
+    request_body = tl_evaluation_engine.build_chat_request(
+        body.messages,
+        role=role,
+        member_context=member_context,
+        sections=sections,
+        forbidden_words=forbidden_words,
+    )
+    try:
+        response = anthropic_client.complete(request_body)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        return tl_evaluation_engine.parse_tool_response(response, forbidden_words)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/tl-evaluations",
+    status_code=201,
+    responses={403: {"description": "Acesso negado"}},
+)
+async def tl_confirm_evaluation(body: ConfirmEvaluationRequest, email: CurrentUser):
+    _require_tl_or_admin(email, body.squad_id)
+    tl_evaluation_repository.upsert_evaluation(
+        squad_id=body.squad_id,
+        squad_member_id=body.squad_member_id,
+        competencia=body.competencia,
+        comportamental_nota=body.comportamental_nota,
+        comportamental_paragrafo=body.comportamental_paragrafo,
+        tecnica_nota=body.tecnica_nota,
+        tecnica_paragrafo=body.tecnica_paragrafo,
+        prazo_nota=body.prazo_nota,
+        prazo_paragrafo=body.prazo_paragrafo,
+        janela_reduzida=body.janela_reduzida,
+        confirmed_by=email,
+    )
+    return {"ok": True}
+
+
+@app.get(
+    "/api/tl-evaluations",
+    responses={403: {"description": "Acesso negado"}},
+)
+async def tl_list_evaluations(squad_id: int, competencia: str, email: CurrentUser):
+    _require_tl_or_admin(email, squad_id)
+    rows = tl_evaluation_repository.list_evaluations(squad_id, competencia)
+    return {"evaluations": [dict(r) for r in rows]}
+
+
+@app.post(
+    "/api/tl-evaluations/{squad_id}/{competencia}/{squad_member_id}/reopen",
+    responses={403: {"description": "Acesso negado"}},
+)
+async def tl_reopen_evaluation(
+    squad_id: int, competencia: str, squad_member_id: int, email: CurrentUser
+):
+    _require_tl_or_admin(email, squad_id)
+    tl_evaluation_repository.reopen_evaluation(squad_id, competencia, squad_member_id)
+    return {"ok": True}
+
+
+@app.post(
+    "/api/tl-evaluations/{squad_id}/{competencia}/close",
+    status_code=201,
+    responses={403: {"description": "Acesso negado"}},
+)
+async def tl_close_competencia(squad_id: int, competencia: str, email: CurrentUser):
+    _require_tl_or_admin(email, squad_id)
+    try:
+        row = tl_evaluation_repository.close_competencia(squad_id, competencia, email)
+    except sqlite3.IntegrityError:
+        row = tl_evaluation_repository.get_closure(squad_id, competencia)
+    return dict(row)
+
+
+@app.get(
+    "/api/tl-evaluations/{squad_id}/{competencia}/close",
+    responses={403: {"description": "Acesso negado"}},
+)
+async def tl_get_closure_status(squad_id: int, competencia: str, email: CurrentUser):
+    _require_tl_or_admin(email, squad_id)
+    row = tl_evaluation_repository.get_closure(squad_id, competencia)
+    if not row:
+        return {"closed": False}
+    return {"closed": True, "closed_at": row["closed_at"], "closed_by": row["closed_by"]}
+
+
+@app.delete(
+    "/api/tl-evaluations/{squad_id}/{competencia}/close",
+    responses={403: {"description": "Acesso negado"}},
+)
+async def tl_reopen_competencia(squad_id: int, competencia: str, email: CurrentUser):
+    _require_tl_or_admin(email, squad_id)
+    tl_evaluation_repository.reopen_competencia(squad_id, competencia)
+    return {"closed": False}
+
+
+@app.get(
+    "/api/tl-evaluations/{squad_id}/{competencia}/pdf",
+    responses={
+        403: {"description": "Acesso negado"},
+        404: {"description": "Competência não encerrada"},
+    },
+)
+async def tl_get_pdf(squad_id: int, competencia: str, email: CurrentUser):
+    _require_tl_or_admin(email, squad_id)
+    closure = tl_evaluation_repository.get_closure(squad_id, competencia)
+    if not closure:
+        raise HTTPException(
+            status_code=404,
+            detail="Competência não encerrada — encerre antes de gerar o PDF",
+        )
+    with _db() as conn:
+        squad = conn.execute(
+            "SELECT nome, tech_lead_user_email FROM squads WHERE id = ?", (squad_id,)
+        ).fetchone()
+        tech_lead_nome = squad["tech_lead_user_email"] if squad else str(squad_id)
+        if squad:
+            tl_row = conn.execute(
+                "SELECT nome_completo FROM team_members WHERE user_email = ?",
+                (squad["tech_lead_user_email"],),
+            ).fetchone()
+            if tl_row and tl_row["nome_completo"]:
+                tech_lead_nome = tl_row["nome_completo"]
+    evaluations = tl_evaluation_repository.list_evaluations(squad_id, competencia)
+    historico = tl_evaluation_repository.get_historico(squad_id)
+    pdf_bytes = tl_evaluation_pdf.generate_squad_pdf(
+        squad_name=squad["nome"] if squad else str(squad_id),
+        competencia=competencia,
+        evaluations=[dict(e) for e in evaluations],
+        tech_lead_nome=tech_lead_nome,
+        historico=[dict(h) for h in historico],
+    )
+    safe_comp = competencia.replace("-", "_")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="avaliacao_{safe_comp}.pdf"'},
+    )
 
 
 # ── Startup + static ──────────────────────────────────────────────────────────

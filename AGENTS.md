@@ -91,7 +91,7 @@ New validation rules must be added as independent functions composed into `valid
 
 ## Business Domains
 
-Six bounded contexts identified in functional discovery:
+Seven bounded contexts identified in functional discovery:
 
 | Order | Domain | Key Responsibility |
 |-------|--------|--------------------|
@@ -101,6 +101,7 @@ Six bounded contexts identified in functional discovery:
 | 3 | **Submission Workflow** | GA submission lifecycle: pending → approved / rejected |
 | 4 | **Team & Billing** | Team profiles, billing rates, billing XLSX export |
 | 5 | **Client Evaluation** | MAG client evaluation ingest, admin review lifecycle (`rascunho → aprovado | rejeitado`), professional self-service history, and admin dashboard |
+| 6 | **TL Evaluation** | TL-driven squad evaluation chat flow (Gates A/B, score 1–5, dimensions), squad and membership management, monthly closure, and PDF generation |
 
 ---
 
@@ -236,7 +237,7 @@ Use the `/commit` skill to execute this flow. WIP commits (without push) do not 
 
 **Deploy steps**: GitHub Actions copies `frontend/dist/` to EC2, pulls `main`, installs Python deps, runs `systemctl restart gabi`, reloads nginx.
 
-**Secrets** (GitHub Actions): `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SID`, `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_TASK_PROJECT`, `MAG_EVAL_API_KEY`.
+**Secrets** (GitHub Actions): `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SID`, `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_TASK_PROJECT`, `MAG_EVAL_API_KEY`, `ANTHROPIC_API_KEY` (dedicated Workspace key under DB1's Anthropic org — never an individual's Pro/Max key; used by the TL Evaluation domain, see `web/core/anthropic_client.py`).
 
 ---
 

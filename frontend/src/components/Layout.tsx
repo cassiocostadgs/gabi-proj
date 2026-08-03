@@ -16,6 +16,9 @@ import {
   Eye,
   EyeOff,
   Star,
+  Layers,
+  IdCard,
+  MessageSquareText,
 } from 'lucide-react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
@@ -47,6 +50,9 @@ const ADMIN_NAV = [
   { to: '/admin/team', icon: UserCheck, label: 'Equipe' },
   { to: '/admin/approvals', icon: ClipboardList, label: 'Aprovações' },
   { to: '/admin/avaliacao-cliente', icon: Star, label: 'Avaliações MAG' },
+  { to: '/admin/squads', icon: Layers, label: 'Squads' },
+  { to: '/admin/tl-roles', icon: IdCard, label: 'Papéis' },
+  { to: '/admin/tl-prompt-settings', icon: MessageSquareText, label: 'Prompt Avaliação TL' },
   { to: '/admin/settings', icon: Settings2, label: 'Configurações' },
 ]
 
@@ -55,6 +61,7 @@ const USER_NAV = [
   { to: '/task-report', icon: Table2, label: 'Meu Task' },
   { to: '/submissions', icon: History, label: 'Submissões' },
   { to: '/minhas-avaliacoes', icon: Star, label: 'Minhas Avaliações' },
+  { to: '/tl/squads', icon: Layers, label: 'Meus Squads' },
 ]
 
 function PasswordField({

@@ -79,3 +79,17 @@ export function currentCompetencia(): string {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
+
+export function addMonths(competencia: string, delta: number): string {
+  let [y, m] = competencia.split('-').map(Number)
+  m += delta
+  while (m > 12) {
+    m -= 12
+    y += 1
+  }
+  while (m < 1) {
+    m += 12
+    y -= 1
+  }
+  return `${y}-${String(m).padStart(2, '0')}`
+}
