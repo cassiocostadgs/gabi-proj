@@ -2333,9 +2333,7 @@ async def admin_update_prompt_section(
     section_key: str, body: UpdatePromptSectionRequest, admin_email: AdminUser
 ):
     try:
-        row = tl_evaluation_prompt_repository.update_section(
-            section_key, body.content, admin_email
-        )
+        row = tl_evaluation_prompt_repository.update_section(section_key, body.content, admin_email)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=PROMPT_SECTION_NOT_FOUND) from exc
     return row
@@ -2369,9 +2367,7 @@ async def admin_remove_forbidden_word(palavra: str, admin_email: AdminUser):
     "/api/admin/tl-evaluation-prompt/preview",
     responses={404: {"description": MEMBER_NOT_FOUND}},
 )
-async def admin_preview_prompt(
-    squad_id: int, squad_member_id: int, competencia: str, _: AdminUser
-):
+async def admin_preview_prompt(squad_id: int, squad_member_id: int, competencia: str, _: AdminUser):
     role, member_context = _resolve_role_and_context(squad_member_id, squad_id, competencia)
     if member_context is None:
         raise HTTPException(status_code=404, detail=MEMBER_NOT_FOUND)
