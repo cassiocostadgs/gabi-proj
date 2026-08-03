@@ -143,9 +143,7 @@ describe('EvaluationDrawer — proposal wizard', () => {
     await user.click(editButtons[1]) // Técnica
 
     expect(screen.getByText(/Etapa 2 de 3/i)).toBeInTheDocument()
-    expect(
-      screen.getByDisplayValue('Entregou a integração com qualidade.')
-    ).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Entregou a integração com qualidade.')).toBeInTheDocument()
   })
 })
 
