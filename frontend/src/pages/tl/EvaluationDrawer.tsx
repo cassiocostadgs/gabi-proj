@@ -178,14 +178,12 @@ function ProposalCard({
       </div>
 
       <div className="flex gap-1 px-4 pt-3">
-        {DIMENSIONS.map((dim, i) => (
-          <div
-            key={dim.label}
-            className={`flex-1 h-1 rounded-full ${
-              i < step ? 'bg-emerald-500' : i === step ? 'bg-blue-600' : 'bg-slate-700'
-            }`}
-          />
-        ))}
+        {DIMENSIONS.map((dim, i) => {
+          let dotColor = 'bg-slate-700'
+          if (i < step) dotColor = 'bg-emerald-500'
+          else if (i === step) dotColor = 'bg-blue-600'
+          return <div key={dim.label} className={`flex-1 h-1 rounded-full ${dotColor}`} />
+        })}
         <div className={`flex-1 h-1 rounded-full ${onSummary ? 'bg-blue-600' : 'bg-slate-700'}`} />
       </div>
 
