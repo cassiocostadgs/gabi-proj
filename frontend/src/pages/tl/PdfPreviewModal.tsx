@@ -76,25 +76,30 @@ export function PdfPreviewModal({
               <thead>
                 <tr>
                   <th className="text-left px-2 py-2 text-slate-500 uppercase text-[10px] tracking-wide whitespace-nowrap">
-                    Dimensão
+                    Profissional
                   </th>
-                  {evaluations.map((ev) => (
-                    <th key={ev.id} className="text-center px-2 py-2 whitespace-nowrap">
-                      <span className="block text-slate-200 font-semibold">
-                        {(ev.nome ?? `#${ev.squadMemberId}`).split(' ')[0]}
-                      </span>
+                  {DIMS.map(({ label }) => (
+                    <th
+                      key={label}
+                      className="text-center px-2 py-2 text-slate-500 uppercase text-[10px] tracking-wide whitespace-nowrap"
+                    >
+                      {label}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {DIMS.map(({ label, notaKey }) => (
-                  <tr key={label} className="border-t border-slate-700">
-                    <td className="px-2 py-2.5 text-slate-300 whitespace-nowrap">{label}</td>
-                    {evaluations.map((ev) => {
+                {evaluations.map((ev) => (
+                  <tr key={ev.id} className="border-t border-slate-700">
+                    <td className="px-2 py-2.5 whitespace-nowrap">
+                      <span className="block text-slate-200 font-semibold">
+                        {(ev.nome ?? `#${ev.squadMemberId}`).split(' ')[0]}
+                      </span>
+                    </td>
+                    {DIMS.map(({ label, notaKey }) => {
                       const nota = ev[notaKey] as number
                       return (
-                        <td key={ev.id} className="text-center px-2 py-2.5">
+                        <td key={label} className="text-center px-2 py-2.5">
                           <span
                             className={`inline-block whitespace-nowrap text-[11px] font-bold px-2 py-0.5 rounded-full border ${scoreBadgeCls(nota)}`}
                           >

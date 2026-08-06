@@ -475,21 +475,21 @@ def _html_panorama(squad_name: str, competencia: str, evaluations: list[dict]) -
         '<div class="panorama-header">'
         + '<div class="panorama-header-label">Panorama da squad</div>'
         + f'<div class="panorama-header-sub">Visão consolidada · {mes} · {squad}</div></div>',
-        '<table class="pano-table"><thead><tr><th>Dimensão</th>',
+        '<table class="pano-table"><thead><tr><th>Profissional</th>',
     ]
-    for ev in evaluations:
-        nome = _esc(ev.get("nome", "—").split()[0])
-        cargo = _esc(ev.get("papel_nome") or "")
-        out.append(
-            f'<th><div class="prof-nome">{nome}</div><div class="prof-cargo">{cargo}</div></th>'
-        )
+    for _nota_key, _para_key, _dim_key, label in _DIMS:
+        out.append(f"<th>{_esc(label)}</th>")
     out.append("</tr></thead><tbody>")
 
     has_janela = any(ev.get("janela_reduzida") for ev in evaluations)
-    for nota_key, _para_key, _dim_key, label in _DIMS:
-        out.append(f"<tr><td>{_esc(label)}</td>")
-        for ev in evaluations:
-            janela = bool(ev.get("janela_reduzida"))
+    for ev in evaluations:
+        nome = _esc(ev.get("nome", "—").split()[0])
+        cargo = _esc(ev.get("papel_nome") or "")
+        janela = bool(ev.get("janela_reduzida"))
+        out.append(
+            f'<tr><td><div class="prof-nome">{nome}</div><div class="prof-cargo">{cargo}</div></td>'
+        )
+        for nota_key, _para_key, _dim_key, _label in _DIMS:
             out.append(f"<td>{_badge_compact(ev.get(nota_key), janela)}</td>")
         out.append("</tr>")
     out.append("</tbody></table>")
@@ -638,12 +638,14 @@ tbody tr:last-child td { border-bottom: none; }
     color: rgba(255,255,255,0.65);
 }
 .panorama-header-sub { font-size: 10pt; font-weight: bold; color: #ffffff; margin-top: 1pt; }
+.pano-table thead { display: table-header-group; }
 .pano-table thead tr { background: #EEF4FA; border-bottom: 1pt solid #C8D8EA; }
 .pano-table th { color: #2E74B5; text-align: center; font-size: 8pt; }
 .pano-table th:first-child { text-align: left; width: 3.5cm; }
 .pano-table th, .pano-table td { padding: 4pt 4pt; }
 .pano-table td { text-align: center; }
 .pano-table td:first-child { text-align: left; background: #FAFBFD; }
+.pano-table tbody tr { page-break-inside: avoid; break-inside: avoid; }
 .prof-nome { font-weight: bold; font-size: 9pt; color: #1F4E79; }
 .prof-cargo { font-size: 8pt; color: #888888; }
 .panorama-footnote {
