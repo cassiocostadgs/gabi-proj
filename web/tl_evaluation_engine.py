@@ -538,9 +538,7 @@ def _check_voice_rule(evaluation: dict, forbidden_words: list[str] | None = None
     violation = check_voice_violation(evaluation, forbidden_words)
     if violation is not None:
         field, marker = violation
-        raise ValueError(
-            f"Parágrafo '{field}' contém marcador de narração proibido: '{marker}'"
-        )
+        raise ValueError(f"Parágrafo '{field}' contém marcador de narração proibido: '{marker}'")
 
 
 def check_response_voice_violation(
@@ -558,9 +556,7 @@ def check_response_voice_violation(
     return check_voice_violation(inp, forbidden_words)
 
 
-def build_voice_retry_request(
-    request_body: dict, response: dict, field: str, marker: str
-) -> dict:
+def build_voice_retry_request(request_body: dict, response: dict, field: str, marker: str) -> dict:
     """Build a follow-up request that asks the model to rewrite a proposal that
     violated the voice rule, by feeding its own tool_use turn back with a
     tool_result naming exactly which field/marker to fix — a single targeted
