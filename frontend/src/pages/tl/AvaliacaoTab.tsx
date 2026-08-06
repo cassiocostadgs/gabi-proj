@@ -460,6 +460,16 @@ function useAvaliacaoTabController(squadId: number) {
     chatMutation.mutate({ messages: nextMessages })
   }
 
+  // Resends the same message history with nothing new appended — lets the TL
+  // recover from a failed turn (e.g. the AI's voice-rule self-correction also
+  // failing) without retyping everything they already reported.
+  function handleRetry() {
+    if (!selectedMemberId) return
+    const existing = chatByMember[selectedMemberId] ?? EMPTY_CHAT
+    patchChat(selectedMemberId, { error: null })
+    chatMutation.mutate({ messages: existing.messages })
+  }
+
   function updateProposal(memberId: number, patch: Partial<EvalProposal>) {
     const existing = chatByMember[memberId] ?? EMPTY_CHAT
     if (!existing.proposal) return
@@ -517,6 +527,7 @@ function useAvaliacaoTabController(squadId: number) {
     shiftCompetencia,
     selectCompetencia,
     handleSend,
+    handleRetry,
     updateProposal,
     handleReopenEvaluation,
     chatMutation,
@@ -596,6 +607,7 @@ export function AvaliacaoTab({
           isConfirming={c.confirmMutation.isPending}
           onInput={c.setUserInput}
           onSend={c.handleSend}
+          onRetry={c.handleRetry}
           onUpdateProposal={(patch) => c.updateProposal(c.selectedMemberId!, patch)}
           onConfirm={() =>
             c.currentChat.proposal && c.confirmMutation.mutate(c.currentChat.proposal)

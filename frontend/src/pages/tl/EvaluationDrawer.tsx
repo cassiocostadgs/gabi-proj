@@ -340,6 +340,7 @@ interface Props {
   isConfirming: boolean
   onInput: (v: string) => void
   onSend: (textOverride?: string) => void
+  onRetry: () => void
   onUpdateProposal: (patch: Partial<EvalProposal>) => void
   onConfirm: () => void
   onReopenEvaluation: () => void
@@ -358,6 +359,7 @@ export function EvaluationDrawer({
   isConfirming,
   onInput,
   onSend,
+  onRetry,
   onUpdateProposal,
   onConfirm,
   onReopenEvaluation,
@@ -538,7 +540,19 @@ export function EvaluationDrawer({
 
         {showComposer && (
           <div className="border-t border-slate-700 bg-slate-800/60 p-4 shrink-0">
-            {chat.error && <p className="text-xs text-red-400 mb-2">{chat.error}</p>}
+            {chat.error && (
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-xs text-red-400">{chat.error}</p>
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  disabled={isSending}
+                  className="shrink-0 text-xs font-semibold text-blue-400 hover:text-blue-300 disabled:opacity-50 transition-colors"
+                >
+                  Tentar novamente
+                </button>
+              </div>
+            )}
             <p className="text-[11px] text-slate-500 mb-2">{composerHint}</p>
             <div className="flex gap-2">
               <textarea

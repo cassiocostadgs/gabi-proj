@@ -482,6 +482,14 @@ def build_chat_request(
     }
 
 
+def _find_tool_use(response: dict) -> tuple[str, dict] | None:
+    """Return (name, input) for the first tool_use block in a response, or None."""
+    for block in response.get("content", []):
+        if block.get("type") == "tool_use":
+            return block["name"], block["input"]
+    return None
+
+
 def parse_tool_response(response: dict, forbidden_words: list[str] | None = None) -> dict:
     """Convert a raw Anthropic Messages API response into a structured chat turn.
 
@@ -494,31 +502,89 @@ def parse_tool_response(response: dict, forbidden_words: list[str] | None = None
     prompt for this turn (via `build_chat_request`) — passing a different list
     here would let the validator drift from what the model was actually told.
     """
-    for block in response.get("content", []):
-        if block.get("type") != "tool_use":
-            continue
-        name = block["name"]
-        inp = block["input"]
-        if name == "ask_question":
-            return {"type": "ask_question", "question": inp["question"]}
-        if name == "propose_evaluation":
-            _check_voice_rule(inp, forbidden_words)
-            return {"type": "propose_evaluation", **inp}
-    raise ValueError("Nenhum bloco tool_use encontrado na resposta da API")
+    found = _find_tool_use(response)
+    if found is None:
+        raise ValueError("Nenhum bloco tool_use encontrado na resposta da API")
+    name, inp = found
+    if name == "ask_question":
+        return {"type": "ask_question", "question": inp["question"]}
+    _check_voice_rule(inp, forbidden_words)
+    return {"type": "propose_evaluation", **inp}
+
+
+_PARAGRAPH_FIELDS = (
+    "comportamental_paragrafo",
+    "tecnica_paragrafo",
+    "prazo_paragrafo",
+)
+
+
+def check_voice_violation(
+    evaluation: dict, forbidden_words: list[str] | None = None
+) -> tuple[str, str] | None:
+    """Return (field, marker) for the first forbidden-voice violation in a
+    propose_evaluation input, or None if no paragraph violates the rule."""
+    markers = forbidden_words if forbidden_words is not None else _FORBIDDEN_VOICE_MARKERS
+    for field in _PARAGRAPH_FIELDS:
+        text = evaluation.get(field) or ""
+        for marker in markers:
+            if marker in text:
+                return field, marker
+    return None
 
 
 def _check_voice_rule(evaluation: dict, forbidden_words: list[str] | None = None) -> None:
     """Raise ValueError if any paragraph field contains forbidden narration markers."""
-    markers = forbidden_words if forbidden_words is not None else _FORBIDDEN_VOICE_MARKERS
-    paragraph_fields = (
-        "comportamental_paragrafo",
-        "tecnica_paragrafo",
-        "prazo_paragrafo",
+    violation = check_voice_violation(evaluation, forbidden_words)
+    if violation is not None:
+        field, marker = violation
+        raise ValueError(
+            f"Parágrafo '{field}' contém marcador de narração proibido: '{marker}'"
+        )
+
+
+def check_response_voice_violation(
+    response: dict, forbidden_words: list[str] | None = None
+) -> tuple[str, str] | None:
+    """Peek at a raw propose_evaluation response for a voice-rule violation without
+    raising, so the caller (the I/O layer) can retry before surfacing an error to
+    the TL. Returns None for ask_question turns and for compliant proposals."""
+    found = _find_tool_use(response)
+    if found is None:
+        return None
+    name, inp = found
+    if name != "propose_evaluation":
+        return None
+    return check_voice_violation(inp, forbidden_words)
+
+
+def build_voice_retry_request(
+    request_body: dict, response: dict, field: str, marker: str
+) -> dict:
+    """Build a follow-up request that asks the model to rewrite a proposal that
+    violated the voice rule, by feeding its own tool_use turn back with a
+    tool_result naming exactly which field/marker to fix — a single targeted
+    self-correction pass instead of a blind resend of the same conversation."""
+    tool_use_block = next(b for b in response["content"] if b.get("type") == "tool_use")
+    correction = (
+        f"A proposta anterior violou a regra de voz: o parágrafo '{field}' contém "
+        f"o marcador proibido '{marker}'. Reescreva a proposta completa com o "
+        "profissional avaliado como sujeito gramatical em todos os parágrafos, sem "
+        "usar esse marcador, mantendo as mesmas notas e o mesmo conteúdo factual."
     )
-    for field in paragraph_fields:
-        text = evaluation.get(field) or ""
-        for marker in markers:
-            if marker in text:
-                raise ValueError(
-                    f"Parágrafo '{field}' contém marcador de narração proibido: '{marker}'"
-                )
+    messages = [
+        *request_body["messages"],
+        {"role": "assistant", "content": response["content"]},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_block["id"],
+                    "content": correction,
+                    "is_error": True,
+                }
+            ],
+        },
+    ]
+    return {**request_body, "messages": messages}

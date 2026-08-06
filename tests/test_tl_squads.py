@@ -583,6 +583,123 @@ class TestTlChatTurn:
         assert member["senioridade"] in system_prompt
         assert "2026-07" in system_prompt
 
+    def test_voice_violation_retries_and_returns_corrected_proposal(
+        self, client, auth_headers, monkeypatch
+    ):
+        """A propose_evaluation that violates the voice rule must not dead-end the
+        chat: the endpoint asks the model to rewrite once and returns the
+        corrected proposal instead of a 502."""
+        import main
+
+        squad, member = self._setup(client, auth_headers)
+        violating_response = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "tu_1",
+                    "name": "propose_evaluation",
+                    "input": {
+                        "comportamental_nota": 4,
+                        "comportamental_paragrafo": "O TL registrou boa postura.",
+                        "tecnica_nota": 4,
+                        "tecnica_paragrafo": "Entregou as implementações planejadas.",
+                        "prazo_nota": 4,
+                        "prazo_paragrafo": "Cumpriu os prazos acordados na sprint.",
+                        "janela_reduzida": False,
+                    },
+                }
+            ]
+        }
+        corrected_response = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "tu_2",
+                    "name": "propose_evaluation",
+                    "input": {
+                        "comportamental_nota": 4,
+                        "comportamental_paragrafo": "Manteve boa postura durante o mês.",
+                        "tecnica_nota": 4,
+                        "tecnica_paragrafo": "Entregou as implementações planejadas.",
+                        "prazo_nota": 4,
+                        "prazo_paragrafo": "Cumpriu os prazos acordados na sprint.",
+                        "janela_reduzida": False,
+                    },
+                }
+            ]
+        }
+        calls = []
+
+        def fake_complete(req):
+            calls.append(req)
+            return violating_response if len(calls) == 1 else corrected_response
+
+        monkeypatch.setattr(main.anthropic_client, "complete", fake_complete)
+        resp = client.post(
+            "/api/tl-evaluations/chat",
+            json={
+                "squad_id": squad["id"],
+                "competencia": "2026-07",
+                "squad_member_id": member["id"],
+                "messages": [{"role": "user", "content": "Relato inicial."}],
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["type"] == "propose_evaluation"
+        assert data["comportamental_paragrafo"] == "Manteve boa postura durante o mês."
+        assert len(calls) == 2
+        retry_messages = calls[1]["messages"]
+        assert retry_messages[-2] == {"role": "assistant", "content": violating_response["content"]}
+        assert retry_messages[-1]["content"][0]["tool_use_id"] == "tu_1"
+
+    def test_voice_violation_persisting_after_retry_returns_502(
+        self, client, auth_headers, monkeypatch
+    ):
+        """If the model violates the voice rule even on the corrected attempt,
+        the endpoint still fails loudly rather than looping forever."""
+        import main
+
+        squad, member = self._setup(client, auth_headers)
+        violating_response = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "tu_1",
+                    "name": "propose_evaluation",
+                    "input": {
+                        "comportamental_nota": 4,
+                        "comportamental_paragrafo": "O TL registrou boa postura.",
+                        "tecnica_nota": 4,
+                        "tecnica_paragrafo": "Entregou as implementações planejadas.",
+                        "prazo_nota": 4,
+                        "prazo_paragrafo": "Cumpriu os prazos acordados na sprint.",
+                        "janela_reduzida": False,
+                    },
+                }
+            ]
+        }
+        calls = []
+
+        def fake_complete(req):
+            calls.append(req)
+            return violating_response
+
+        monkeypatch.setattr(main.anthropic_client, "complete", fake_complete)
+        resp = client.post(
+            "/api/tl-evaluations/chat",
+            json={
+                "squad_id": squad["id"],
+                "competencia": "2026-07",
+                "squad_member_id": member["id"],
+                "messages": [{"role": "user", "content": "Relato inicial."}],
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 502
+        assert len(calls) == 2
+
 
 # ── TL evaluation confirmation ────────────────────────────────────────────────
 

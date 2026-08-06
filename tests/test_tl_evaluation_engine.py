@@ -406,6 +406,91 @@ class TestParseToolResponse:
             engine.parse_tool_response({"content": []})
 
 
+# ── Voice-rule self-correction retry (production incident: hard 502 dead-ended
+# the TL's chat when the model narrated "TL" in a generated paragraph) ────────
+
+
+class TestCheckResponseVoiceViolation:
+    def _propose_response(self, tool_use_id="tu_1", **overrides) -> dict:
+        defaults = {
+            "comportamental_nota": 4,
+            "comportamental_paragrafo": "Manteve boa postura durante o mês.",
+            "tecnica_nota": 4,
+            "tecnica_paragrafo": "Entregou as implementações planejadas.",
+            "prazo_nota": 4,
+            "prazo_paragrafo": "Cumpriu os prazos acordados na sprint.",
+            "janela_reduzida": False,
+        }
+        return {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": tool_use_id,
+                    "name": "propose_evaluation",
+                    "input": {**defaults, **overrides},
+                }
+            ]
+        }
+
+    def test_returns_none_for_ask_question(self):
+        resp = {
+            "content": [
+                {"type": "tool_use", "id": "tu_1", "name": "ask_question", "input": {"question": "?"}}
+            ]
+        }
+        assert engine.check_response_voice_violation(resp) is None
+
+    def test_returns_none_when_no_tool_use_block(self):
+        assert engine.check_response_voice_violation({"content": []}) is None
+
+    def test_returns_none_for_compliant_proposal(self):
+        resp = self._propose_response()
+        assert engine.check_response_voice_violation(resp) is None
+
+    def test_returns_field_and_marker_on_violation(self):
+        resp = self._propose_response(
+            prazo_paragrafo="O TL registrou que os prazos foram cumpridos."
+        )
+        assert engine.check_response_voice_violation(resp) == ("prazo_paragrafo", "TL")
+
+
+class TestBuildVoiceRetryRequest:
+    def test_appends_assistant_turn_and_tool_result(self):
+        request_body = {"model": "x", "messages": [{"role": "user", "content": "Relato."}]}
+        response = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "tu_42",
+                    "name": "propose_evaluation",
+                    "input": {"prazo_paragrafo": "O TL registrou algo."},
+                }
+            ]
+        }
+        retry = engine.build_voice_retry_request(request_body, response, "prazo_paragrafo", "TL")
+        assert retry["model"] == "x"
+        assert retry["messages"][0] == {"role": "user", "content": "Relato."}
+        assert retry["messages"][1] == {"role": "assistant", "content": response["content"]}
+        tool_result = retry["messages"][2]
+        assert tool_result["role"] == "user"
+        block = tool_result["content"][0]
+        assert block["type"] == "tool_result"
+        assert block["tool_use_id"] == "tu_42"
+        assert block["is_error"] is True
+        assert "prazo_paragrafo" in block["content"]
+        assert "TL" in block["content"]
+
+    def test_does_not_mutate_original_request_body(self):
+        request_body = {"messages": [{"role": "user", "content": "Relato."}]}
+        response = {
+            "content": [
+                {"type": "tool_use", "id": "tu_1", "name": "propose_evaluation", "input": {}}
+            ]
+        }
+        engine.build_voice_retry_request(request_body, response, "prazo_paragrafo", "TL")
+        assert request_body["messages"] == [{"role": "user", "content": "Relato."}]
+
+
 # ── Admin-editable sections / forbidden words (003-tl-evaluation-prompt-admin) ─
 #
 # The system prompt used to be one hardcoded constant; it is now composed from

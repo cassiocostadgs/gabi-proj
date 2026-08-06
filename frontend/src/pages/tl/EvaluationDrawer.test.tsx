@@ -39,6 +39,7 @@ const baseProps = {
   isConfirming: false,
   onInput: () => {},
   onSend: () => {},
+  onRetry: () => {},
   onUpdateProposal: () => {},
   onConfirm: () => {},
   onReopenEvaluation: () => {},

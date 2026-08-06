@@ -2538,6 +2538,21 @@ async def tl_chat(body: ChatRequest, email: CurrentUser):
         response = anthropic_client.complete(request_body)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    # The voice rule is probabilistic on the model's side — a single violation
+    # shouldn't dead-end the TL's conversation. Give the model one targeted
+    # chance to rewrite itself before falling back to a hard error.
+    violation = tl_evaluation_engine.check_response_voice_violation(response, forbidden_words)
+    if violation is not None:
+        field, marker = violation
+        retry_body = tl_evaluation_engine.build_voice_retry_request(
+            request_body, response, field, marker
+        )
+        try:
+            response = anthropic_client.complete(retry_body)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     try:
         return tl_evaluation_engine.parse_tool_response(response, forbidden_words)
     except ValueError as exc:
