@@ -107,7 +107,7 @@ This query feeds the self-service task-entries report.
 
 16. Admins can upload one or more Task XLSX files per competência. The most
     recently uploaded file per competência is the one used in file mode.
-17. The uploaded file is stored on disk; the SQLite `task_uploads` table records
+17. The uploaded file is stored on disk; the PostgreSQL `task_uploads` table records
     the metadata (`filename`, `path`, `competencia`, `uploaded_at`,
     `uploaded_by`).
 18. File-mode validation selects the most recent upload matching the given
@@ -197,7 +197,7 @@ This query feeds the self-service task-entries report.
 
 ## Entities and data
 
-### SQLite — `task_uploads`
+### PostgreSQL — `task_uploads`
 
 | Column        | Type    | Notes                                      |
 |---------------|---------|--------------------------------------------|
@@ -205,7 +205,7 @@ This query feeds the self-service task-entries report.
 | `filename`    | TEXT    | Original filename                          |
 | `path`        | TEXT    | Absolute path on server disk               |
 | `competencia` | TEXT    | Format: `YYYY-MM` (default `''`)           |
-| `uploaded_at` | TEXT    | UTC datetime string (SQLite default)       |
+| `uploaded_at` | TIMESTAMP(0) | UTC; returned as "YYYY-MM-DD HH:MM:SS" |
 | `uploaded_by` | TEXT    | Email of the uploading admin               |
 
 ### Oracle tables (read-only)
@@ -275,7 +275,7 @@ This query feeds the self-service task-entries report.
 33. A 503 is returned when the Oracle query cannot be completed (connection error,
     timeout, or other exception). The error detail includes the original exception
     message.
-34. Task file deletion is non-atomic: the record is deleted from SQLite first;
+34. Task file deletion is non-atomic: the record is deleted from the database first;
     file removal failure is silently suppressed.
 35. `GET /api/task/my-entries` and the admin equivalents always invoke Oracle
     directly (no file fallback). The file fallback is used only within

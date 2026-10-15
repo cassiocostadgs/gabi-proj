@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from db import _db
 
 _DELETE_CLOSURE_SQL = (
-    "DELETE FROM squad_competencia_closures WHERE squad_id = ? AND competencia = ?"
+    "DELETE FROM squad_competencia_closures WHERE squad_id = %s AND competencia = %s"
 )
 
 
@@ -38,7 +38,7 @@ def upsert_evaluation(
                 tecnica_nota, tecnica_paragrafo,
                 prazo_nota, prazo_paragrafo,
                 janela_reduzida, status, confirmed_by, confirmed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmado', ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'confirmado', %s, %s)
             ON CONFLICT(squad_id, competencia, squad_member_id) DO UPDATE SET
                 comportamental_nota      = excluded.comportamental_nota,
                 comportamental_paragrafo = excluded.comportamental_paragrafo,
@@ -77,7 +77,7 @@ def list_evaluations(squad_id: int, competencia: str) -> list:
             FROM tl_evaluations te
             JOIN squad_members sm ON sm.id = te.squad_member_id
             JOIN tl_evaluation_roles r ON r.id = sm.role_id
-            WHERE te.squad_id = ? AND te.competencia = ? AND te.status = 'confirmado'
+            WHERE te.squad_id = %s AND te.competencia = %s AND te.status = 'confirmado'
             ORDER BY sm.nome
             """,
             (squad_id, competencia),
@@ -93,7 +93,7 @@ def get_historico(squad_id: int) -> list:
             SELECT te.*, sm.nome
             FROM tl_evaluations te
             JOIN squad_members sm ON sm.id = te.squad_member_id
-            WHERE te.squad_id = ? AND te.competencia < ? AND te.status = 'confirmado'
+            WHERE te.squad_id = %s AND te.competencia < %s AND te.status = 'confirmado'
             ORDER BY te.competencia DESC, sm.nome
             """,
             (squad_id, current_competencia),
@@ -104,11 +104,11 @@ def close_competencia(squad_id: int, competencia: str, closed_by: str):
     with _db() as conn:
         conn.execute(
             "INSERT INTO squad_competencia_closures (squad_id, competencia, closed_by)"
-            " VALUES (?, ?, ?)",
+            " VALUES (%s, %s, %s)",
             (squad_id, competencia, closed_by),
         )
         return conn.execute(
-            "SELECT * FROM squad_competencia_closures WHERE squad_id = ? AND competencia = ?",
+            "SELECT * FROM squad_competencia_closures WHERE squad_id = %s AND competencia = %s",
             (squad_id, competencia),
         ).fetchone()
 
@@ -117,7 +117,7 @@ def get_closure(squad_id: int, competencia: str):
     """Returns the closure row or None."""
     with _db() as conn:
         return conn.execute(
-            "SELECT * FROM squad_competencia_closures WHERE squad_id = ? AND competencia = ?",
+            "SELECT * FROM squad_competencia_closures WHERE squad_id = %s AND competencia = %s",
             (squad_id, competencia),
         ).fetchone()
 
@@ -141,7 +141,7 @@ def reopen_evaluation(squad_id: int, competencia: str, squad_member_id: int) -> 
         conn.execute(
             """
             UPDATE tl_evaluations SET status = 'rascunho'
-            WHERE squad_id = ? AND competencia = ? AND squad_member_id = ?
+            WHERE squad_id = %s AND competencia = %s AND squad_member_id = %s
             """,
             (squad_id, competencia, squad_member_id),
         )

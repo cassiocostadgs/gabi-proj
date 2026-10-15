@@ -1,0 +1,14 @@
+.git
+frontend/node_modules
+frontend/dist
+**/__pycache__
+web/users.db
+web/.secret_key
+web/.env
+web/tasks
+tests
+docs
+.agents
+.clovis
+.github
+scripts

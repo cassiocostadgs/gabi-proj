@@ -1,4 +1,4 @@
-"""Repository for the client-evaluation domain — all SQLite access for this domain."""
+"""Repository for the client-evaluation domain — all database access for this domain."""
 
 from db import _db
 from gabi_engine import norm
@@ -24,7 +24,10 @@ def insert_draft(
                 prazo_nota, prazo_comentario,
                 comentario_geral, raw_email_text,
                 email_message_id, origem, status, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'rascunho', ?)
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'rascunho', %s
+            )
+            RETURNING id
             """,
             (
                 parsed["competencia"],
@@ -45,14 +48,14 @@ def insert_draft(
                 created_by,
             ),
         )
-        row_id = cursor.lastrowid
+        row_id = cursor.fetchone()["id"]
     return row_id
 
 
 def find_by_message_id(message_id: str):
     with _db() as conn:
         return conn.execute(
-            "SELECT * FROM client_evaluations WHERE email_message_id = ?",
+            "SELECT * FROM client_evaluations WHERE email_message_id = %s",
             (message_id,),
         ).fetchone()
 
@@ -60,7 +63,7 @@ def find_by_message_id(message_id: str):
 def find_by_email_competencia(user_email: str, competencia: str):
     with _db() as conn:
         return conn.execute(
-            "SELECT * FROM client_evaluations WHERE user_email = ? AND competencia = ?",
+            "SELECT * FROM client_evaluations WHERE user_email = %s AND competencia = %s",
             (user_email, competencia),
         ).fetchone()
 
@@ -70,7 +73,7 @@ def find_by_name_competencia(nome_extraido: str, competencia: str) -> list:
     normalized = norm(nome_extraido)
     with _db() as conn:
         rows = conn.execute(
-            "SELECT * FROM client_evaluations WHERE competencia = ? AND user_email IS NULL",
+            "SELECT * FROM client_evaluations WHERE competencia = %s AND user_email IS NULL",
             (competencia,),
         ).fetchall()
     return [r for r in rows if norm(r["nome_extraido"]) == normalized]
@@ -80,7 +83,7 @@ def find_approved_by_email_competencia(user_email: str, competencia: str):
     with _db() as conn:
         return conn.execute(
             "SELECT * FROM client_evaluations"
-            " WHERE user_email = ? AND competencia = ? AND status = 'aprovado'",
+            " WHERE user_email = %s AND competencia = %s AND status = 'aprovado'",
             (user_email, competencia),
         ).fetchone()
 
@@ -88,7 +91,7 @@ def find_approved_by_email_competencia(user_email: str, competencia: str):
 def get_by_id(record_id: int):
     with _db() as conn:
         return conn.execute(
-            "SELECT * FROM client_evaluations WHERE id = ?",
+            "SELECT * FROM client_evaluations WHERE id = %s",
             (record_id,),
         ).fetchone()
 
@@ -97,7 +100,7 @@ def list_all(status_filter=None) -> list:
     with _db() as conn:
         if status_filter:
             return conn.execute(
-                "SELECT * FROM client_evaluations WHERE status = ? ORDER BY created_at DESC",
+                "SELECT * FROM client_evaluations WHERE status = %s ORDER BY created_at DESC",
                 (status_filter,),
             ).fetchall()
         return conn.execute("SELECT * FROM client_evaluations ORDER BY created_at DESC").fetchall()
@@ -113,11 +116,11 @@ def update_draft(record_id: int, fields: dict, edited_by: str, edited_at: str) -
         fields = {**fields, "match_status": "manual" if fields["user_email"] else "nao_vinculado"}
 
     # Build SET clause from known column names — values are always parameterised
-    set_clause = ", ".join(k + " = ?" for k in fields)
+    set_clause = ", ".join(k + " = %s" for k in fields)
     sql = (
         "UPDATE client_evaluations SET "
         + set_clause
-        + ", edited_by = ?, edited_at = ? WHERE id = ?"
+        + ", edited_by = %s, edited_at = %s WHERE id = %s"
     )
     values = [*fields.values(), edited_by, edited_at, record_id]
     with _db() as conn:
@@ -129,7 +132,7 @@ def update_status(record_id: int, new_status: str, reviewed_by: str, reviewed_at
     with _db() as conn:
         result = conn.execute(
             "UPDATE client_evaluations"
-            " SET status = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?",
+            " SET status = %s, reviewed_by = %s, reviewed_at = %s WHERE id = %s",
             (new_status, reviewed_by, reviewed_at, record_id),
         )
     return result.rowcount
@@ -157,8 +160,8 @@ def relink_auto(record_id: int, user_email: str, edited_by: str, edited_at: str)
     unlike update_draft() which marks manual edits as 'manual'."""
     with _db() as conn:
         result = conn.execute(
-            "UPDATE client_evaluations SET user_email = ?, match_status = 'auto',"
-            " edited_by = ?, edited_at = ? WHERE id = ?",
+            "UPDATE client_evaluations SET user_email = %s, match_status = 'auto',"
+            " edited_by = %s, edited_at = %s WHERE id = %s",
             (user_email, edited_by, edited_at, record_id),
         )
     return result.rowcount
@@ -172,13 +175,13 @@ def get_dashboard(
     sql = "SELECT * FROM client_evaluations WHERE status = 'aprovado'"
     params: list = []
     if user_email_filter:
-        sql += " AND user_email = ?"
+        sql += " AND user_email = %s"
         params.append(user_email_filter)
     if competencia_from:
-        sql += " AND competencia >= ?"
+        sql += " AND competencia >= %s"
         params.append(competencia_from)
     if competencia_to:
-        sql += " AND competencia <= ?"
+        sql += " AND competencia <= %s"
         params.append(competencia_to)
     sql += " ORDER BY competencia ASC, user_email ASC"
     with _db() as conn:
@@ -189,7 +192,7 @@ def get_my_evaluations(user_email: str) -> list:
     with _db() as conn:
         return conn.execute(
             "SELECT * FROM client_evaluations"
-            " WHERE user_email = ? AND status = 'aprovado'"
+            " WHERE user_email = %s AND status = 'aprovado'"
             " ORDER BY competencia DESC",
             (user_email,),
         ).fetchall()

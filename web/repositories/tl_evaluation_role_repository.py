@@ -163,14 +163,15 @@ def seed_default_roles(conn) -> None:
     table creation, not its own."""
     for role in SEED_ROLES:
         cursor = conn.execute(
-            "INSERT INTO tl_evaluation_roles (nome, descricao, categoria) VALUES (?, ?, ?)",
+            "INSERT INTO tl_evaluation_roles (nome, descricao, categoria) VALUES (%s, %s, %s)"
+            " RETURNING id",
             (role["nome"], role["descricao"], role["categoria"]),
         )
-        role_id = cursor.lastrowid
+        role_id = cursor.fetchone()["id"]
         for ordem, (principal, descricao) in enumerate(role["responsabilidades"]):
             conn.execute(
                 "INSERT INTO tl_evaluation_role_responsibilities"
-                " (role_id, descricao, principal, ordem) VALUES (?, ?, ?, ?)",
+                " (role_id, descricao, principal, ordem) VALUES (%s, %s, %s, %s)",
                 (role_id, descricao, int(principal), ordem),
             )
 
@@ -180,20 +181,18 @@ def seed_default_roles(conn) -> None:
 
 def create_role(nome: str, descricao: str | None, categoria: str | None):
     with _db() as conn:
-        cursor = conn.execute(
-            "INSERT INTO tl_evaluation_roles (nome, descricao, categoria) VALUES (?, ?, ?)",
-            (nome, descricao, categoria),
-        )
         return conn.execute(
-            "SELECT * FROM tl_evaluation_roles WHERE id = ?", (cursor.lastrowid,)
+            "INSERT INTO tl_evaluation_roles (nome, descricao, categoria) VALUES (%s, %s, %s)"
+            " RETURNING *",
+            (nome, descricao, categoria),
         ).fetchone()
 
 
 def update_role(role_id: int, fields: dict) -> int:
     if not fields:
         return 0
-    set_clause = ", ".join(k + " = ?" for k in fields)
-    sql = f"UPDATE tl_evaluation_roles SET {set_clause} WHERE id = ?"
+    set_clause = ", ".join(k + " = %s" for k in fields)
+    sql = f"UPDATE tl_evaluation_roles SET {set_clause} WHERE id = %s"
     values = [*fields.values(), role_id]
     with _db() as conn:
         result = conn.execute(sql, values)
@@ -204,7 +203,7 @@ def _attach_responsibilities(conn, roles: list) -> list[dict]:
     role_ids = [r["id"] for r in roles]
     if not role_ids:
         return []
-    placeholders = ", ".join("?" for _ in role_ids)
+    placeholders = ", ".join("%s" for _ in role_ids)
     resp_rows = conn.execute(
         f"SELECT * FROM tl_evaluation_role_responsibilities"
         f" WHERE role_id IN ({placeholders}) ORDER BY ordem, id",
@@ -226,7 +225,9 @@ def list_roles() -> list[dict]:
 def get_role(role_id: int) -> dict | None:
     """A single role with responsibilities nested, or None."""
     with _db() as conn:
-        role = conn.execute("SELECT * FROM tl_evaluation_roles WHERE id = ?", (role_id,)).fetchone()
+        role = conn.execute(
+            "SELECT * FROM tl_evaluation_roles WHERE id = %s", (role_id,)
+        ).fetchone()
         if role is None:
             return None
         return _attach_responsibilities(conn, [role])[0]
@@ -234,14 +235,10 @@ def get_role(role_id: int) -> dict | None:
 
 def add_responsibility(role_id: int, descricao: str, principal: bool, ordem: int):
     with _db() as conn:
-        cursor = conn.execute(
-            "INSERT INTO tl_evaluation_role_responsibilities"
-            " (role_id, descricao, principal, ordem) VALUES (?, ?, ?, ?)",
-            (role_id, descricao, int(principal), ordem),
-        )
         return conn.execute(
-            "SELECT * FROM tl_evaluation_role_responsibilities WHERE id = ?",
-            (cursor.lastrowid,),
+            "INSERT INTO tl_evaluation_role_responsibilities"
+            " (role_id, descricao, principal, ordem) VALUES (%s, %s, %s, %s) RETURNING *",
+            (role_id, descricao, int(principal), ordem),
         ).fetchone()
 
 
@@ -251,8 +248,8 @@ def update_responsibility(resp_id: int, fields: dict) -> int:
     updated = dict(fields)
     if "principal" in updated:
         updated["principal"] = int(updated["principal"])
-    set_clause = ", ".join(k + " = ?" for k in updated)
-    sql = f"UPDATE tl_evaluation_role_responsibilities SET {set_clause} WHERE id = ?"
+    set_clause = ", ".join(k + " = %s" for k in updated)
+    sql = f"UPDATE tl_evaluation_role_responsibilities SET {set_clause} WHERE id = %s"
     values = [*updated.values(), resp_id]
     with _db() as conn:
         result = conn.execute(sql, values)
@@ -262,6 +259,6 @@ def update_responsibility(resp_id: int, fields: dict) -> int:
 def delete_responsibility(resp_id: int) -> int:
     with _db() as conn:
         result = conn.execute(
-            "DELETE FROM tl_evaluation_role_responsibilities WHERE id = ?", (resp_id,)
+            "DELETE FROM tl_evaluation_role_responsibilities WHERE id = %s", (resp_id,)
         )
     return result.rowcount

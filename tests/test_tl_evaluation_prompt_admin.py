@@ -2,7 +2,7 @@
 (spec 003-tl-evaluation-prompt-admin).
 
 Uses the shared `client`/`auth_headers` fixtures (conftest.py) — fresh
-in-memory SQLite DB per test via monkeypatch on main.DB_PATH.
+isolated PostgreSQL schema per test (see conftest.client).
 """
 
 import pytest

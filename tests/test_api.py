@@ -52,7 +52,7 @@ class TestMe:
     def test_inactive_user(self, client, auth_headers):
         import main
         with main._db() as conn:
-            conn.execute("UPDATE users SET is_active=0 WHERE email=?", ("tiagohlatki@db1.com.br",))
+            conn.execute("UPDATE users SET is_active=0 WHERE email=%s", ("tiagohlatki@db1.com.br",))
         assert client.get("/auth/me", headers=auth_headers).status_code == 401
 
 
@@ -347,7 +347,7 @@ class TestValidateEndpoint:
         fake_path = str(tmp_path / "nonexistent.xlsx")
         with main._db() as conn:
             conn.execute(
-                "INSERT INTO task_uploads (filename, path, competencia, uploaded_by) VALUES (?,?,?,?)",
+                "INSERT INTO task_uploads (filename, path, competencia, uploaded_by) VALUES (%s,%s,%s,%s)",
                 ("task.xlsx", fake_path, "2025-01", "test@test.com"),
             )
         with patch("main.is_oracle_configured", return_value=False):
@@ -669,7 +669,7 @@ class TestSubmissions:
         self._submit(client, auth_headers)
         import main
         with main._db() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM ga_submissions").fetchone()[0]
+            count = conn.execute("SELECT COUNT(*) AS n FROM ga_submissions").fetchone()["n"]
         assert count == 1
 
     def test_status_not_submitted(self, client, auth_headers):

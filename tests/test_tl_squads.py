@@ -1,7 +1,7 @@
 """Integration tests for the tl-evaluation admin squad endpoints (T6).
 
 All tests use the shared `client` fixture (conftest.py) which creates a fresh
-in-memory SQLite DB for each test via monkeypatch on main.DB_PATH.
+isolated PostgreSQL schema for each test (see conftest.client).
 """
 
 import pytest
@@ -187,12 +187,12 @@ class TestAdminListSquadMembers:
         with main._db() as conn:
             conn.execute(
                 "INSERT INTO squad_members (squad_id, nome, role_id, senioridade, fornecedor, ativo)"
-                " VALUES (?, 'Alice Silva', 1, 'Sênior', 'DB1', 1)",
+                " VALUES (%s, 'Alice Silva', 1, 'Sênior', 'DB1', 1)",
                 (squad["id"],),
             )
             conn.execute(
                 "INSERT INTO squad_members (squad_id, nome, role_id, senioridade, fornecedor, ativo)"
-                " VALUES (?, 'Bob Santos', 2, 'Pleno', 'DB1', 0)",
+                " VALUES (%s, 'Bob Santos', 2, 'Pleno', 'DB1', 0)",
                 (squad["id"],),
             )
 
@@ -744,9 +744,9 @@ class TestTlEvaluationConfirm:
         self._confirm(client, auth_headers, squad["id"], member["id"])
         with main._db() as conn:
             count = conn.execute(
-                "SELECT COUNT(*) FROM tl_evaluations WHERE squad_id=? AND squad_member_id=?",
+                "SELECT COUNT(*) AS n FROM tl_evaluations WHERE squad_id=%s AND squad_member_id=%s",
                 (squad["id"], member["id"]),
-            ).fetchone()[0]
+            ).fetchone()["n"]
         assert count == 1
 
     def test_non_tl_returns_403(self, client, auth_headers, non_admin_headers):
@@ -876,7 +876,7 @@ class TestTlReopenEvaluation:
         )
         with main._db() as conn:
             row = conn.execute(
-                "SELECT status FROM tl_evaluations WHERE squad_id=? AND squad_member_id=?",
+                "SELECT status FROM tl_evaluations WHERE squad_id=%s AND squad_member_id=%s",
                 (squad["id"], member["id"]),
             ).fetchone()
         assert row["status"] == "rascunho"
@@ -892,7 +892,7 @@ class TestTlReopenEvaluation:
         )
         with main._db() as conn:
             row = conn.execute(
-                "SELECT 1 FROM squad_competencia_closures WHERE squad_id=? AND competencia=?",
+                "SELECT 1 FROM squad_competencia_closures WHERE squad_id=%s AND competencia=%s",
                 (squad["id"], "2026-07"),
             ).fetchone()
         assert row is None
@@ -989,7 +989,7 @@ class TestTlCloseCompetencia:
         )
         with main._db() as conn:
             row = conn.execute(
-                "SELECT 1 FROM squad_competencia_closures WHERE squad_id=? AND competencia=?",
+                "SELECT 1 FROM squad_competencia_closures WHERE squad_id=%s AND competencia=%s",
                 (squad["id"], "2026-07"),
             ).fetchone()
         assert row is not None
@@ -1015,7 +1015,7 @@ class TestTlCloseCompetencia:
         )
         with main._db() as conn:
             row = conn.execute(
-                "SELECT 1 FROM squad_competencia_closures WHERE squad_id=? AND competencia=?",
+                "SELECT 1 FROM squad_competencia_closures WHERE squad_id=%s AND competencia=%s",
                 (squad["id"], "2026-07"),
             ).fetchone()
         assert row is None
@@ -1099,7 +1099,7 @@ class TestTlClosureStatus:
         assert resp.json() == {"closed": False}
         with main._db() as conn:
             row = conn.execute(
-                "SELECT 1 FROM squad_competencia_closures WHERE squad_id=? AND competencia=?",
+                "SELECT 1 FROM squad_competencia_closures WHERE squad_id=%s AND competencia=%s",
                 (squad["id"], "2026-07"),
             ).fetchone()
         assert row is None
@@ -1112,9 +1112,9 @@ class TestTlClosureStatus:
         client.delete(f"/api/tl-evaluations/{squad['id']}/2026-07/close", headers=auth_headers)
         with main._db() as conn:
             count = conn.execute(
-                "SELECT COUNT(*) FROM tl_evaluations WHERE squad_id=? AND squad_member_id=?",
+                "SELECT COUNT(*) AS n FROM tl_evaluations WHERE squad_id=%s AND squad_member_id=%s",
                 (squad["id"], member["id"]),
-            ).fetchone()[0]
+            ).fetchone()["n"]
         assert count == 1
 
     def test_reopen_when_never_closed_is_a_noop(self, client, auth_headers):

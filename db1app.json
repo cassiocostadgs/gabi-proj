@@ -1,0 +1,20 @@
+{
+  "nome": "GABI",
+  "descricao": "G.A.B.I. (Gap Auditor of Billed Input): valida se as horas apontadas no GA batem com as faturadas no Task (Oracle), com fluxo de submissão e aprovação, faturamento do time, avaliações de cliente (MAG) e avaliação de squads por TL com apoio de IA.",
+  "categoria": "operacao",
+  "health_check_path": "/health",
+  "alcance": "time",
+  "fatores": {
+    "altera_outra_app": false,
+    "expoe_api": true,
+    "tem_llm": true,
+    "dado_sensivel": true,
+    "credencial_servico": true,
+    "sem_identidade": false
+  },
+  "llm": { "provedor": "anthropic", "modelos": ["claude-sonnet-4-6"] },
+  "identidade": "nenhuma",
+  "sistemas": ["Task (Oracle)"],
+  "declarado_por": "cassio.costa@db1.com.br",
+  "declarado_em": "2026-10-15"
+}

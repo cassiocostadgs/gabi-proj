@@ -1,0 +1,6 @@
+// Not used by the app (Python/psycopg). Its presence makes the DB1 deploy portal
+// provision a managed PostgreSQL and inject DATABASE_URL — see AGENTS.md.
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

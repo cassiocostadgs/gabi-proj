@@ -30,12 +30,12 @@ def seed_defaults(conn) -> None:
     for key, content in engine.default_sections().items():
         conn.execute(
             "INSERT INTO tl_evaluation_prompt_sections (section_key, content, updated_by)"
-            " VALUES (?, ?, ?)",
+            " VALUES (%s, %s, %s)",
             (key, content, seed_email),
         )
     for palavra in engine.default_forbidden_words():
         conn.execute(
-            "INSERT INTO tl_evaluation_voice_forbidden_words (palavra, created_by) VALUES (?, ?)",
+            "INSERT INTO tl_evaluation_voice_forbidden_words (palavra, created_by) VALUES (%s, %s)",
             (palavra, seed_email),
         )
 
@@ -71,26 +71,26 @@ def update_section(section_key: str, content: str, user_email: str) -> dict:
         raise ValueError(f"section_key inválido: {section_key!r}")
     with _db() as conn:
         existing = conn.execute(
-            "SELECT content FROM tl_evaluation_prompt_sections WHERE section_key = ?",
+            "SELECT content FROM tl_evaluation_prompt_sections WHERE section_key = %s",
             (section_key,),
         ).fetchone()
         if existing is not None:
             conn.execute(
                 "INSERT INTO tl_evaluation_prompt_section_history"
-                " (section_key, content, changed_by) VALUES (?, ?, ?)",
+                " (section_key, content, changed_by) VALUES (%s, %s, %s)",
                 (section_key, existing["content"], user_email),
             )
         conn.execute(
             "INSERT INTO tl_evaluation_prompt_sections"
             " (section_key, content, updated_by, updated_at)"
-            " VALUES (?, ?, ?, datetime('now'))"
+            " VALUES (%s, %s, %s, now() AT TIME ZONE 'UTC')"
             " ON CONFLICT(section_key) DO UPDATE SET"
             " content = excluded.content, updated_by = excluded.updated_by,"
             " updated_at = excluded.updated_at",
             (section_key, content, user_email),
         )
         row = conn.execute(
-            "SELECT * FROM tl_evaluation_prompt_sections WHERE section_key = ?",
+            "SELECT * FROM tl_evaluation_prompt_sections WHERE section_key = %s",
             (section_key,),
         ).fetchone()
     return dict(row)
@@ -101,7 +101,7 @@ def get_section_history(section_key: str) -> list[dict]:
     with _db() as conn:
         rows = conn.execute(
             "SELECT content, changed_by, changed_at FROM tl_evaluation_prompt_section_history"
-            " WHERE section_key = ? ORDER BY id",
+            " WHERE section_key = %s ORDER BY id",
             (section_key,),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -120,7 +120,7 @@ def _snapshot_voice_words(conn, user_email: str) -> None:
     current = [r["palavra"] for r in conn.execute(_SELECT_VOICE_WORDS).fetchall()]
     conn.execute(
         "INSERT INTO tl_evaluation_prompt_section_history (section_key, content, changed_by)"
-        " VALUES ('voz', ?, ?)",
+        " VALUES ('voz', %s, %s)",
         (", ".join(current), user_email),
     )
 
@@ -134,14 +134,14 @@ def add_forbidden_word(palavra: str, user_email: str) -> list[str]:
         raise ValueError(f"Palavra deve ter ao menos {MIN_FORBIDDEN_WORD_LENGTH} caracteres")
     with _db() as conn:
         existing = conn.execute(
-            "SELECT 1 FROM tl_evaluation_voice_forbidden_words WHERE palavra = ?",
+            "SELECT 1 FROM tl_evaluation_voice_forbidden_words WHERE palavra = %s",
             (palavra,),
         ).fetchone()
         if existing:
             raise ValueError(f"Palavra já cadastrada: {palavra!r}")
         _snapshot_voice_words(conn, user_email)
         conn.execute(
-            "INSERT INTO tl_evaluation_voice_forbidden_words (palavra, created_by) VALUES (?, ?)",
+            "INSERT INTO tl_evaluation_voice_forbidden_words (palavra, created_by) VALUES (%s, %s)",
             (palavra, user_email),
         )
         rows = conn.execute(_SELECT_VOICE_WORDS).fetchall()
@@ -152,7 +152,7 @@ def remove_forbidden_word(palavra: str, user_email: str) -> list[str]:
     with _db() as conn:
         _snapshot_voice_words(conn, user_email)
         conn.execute(
-            "DELETE FROM tl_evaluation_voice_forbidden_words WHERE palavra = ?", (palavra,)
+            "DELETE FROM tl_evaluation_voice_forbidden_words WHERE palavra = %s", (palavra,)
         )
         rows = conn.execute(_SELECT_VOICE_WORDS).fetchall()
     return [r["palavra"] for r in rows]

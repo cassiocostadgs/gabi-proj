@@ -1,7 +1,7 @@
 """Integration tests for the client-evaluation domain endpoints.
 
 All tests use the shared `client` fixture (conftest.py) which creates a fresh
-in-memory SQLite DB for each test via monkeypatch on main.DB_PATH.
+isolated PostgreSQL schema for each test (see conftest.client).
 """
 
 import pytest
@@ -636,7 +636,7 @@ class TestAutomatedIngest:
         import main
         with main._db() as conn:
             row = conn.execute(
-                "SELECT email_message_id, origem FROM client_evaluations WHERE id=?",
+                "SELECT email_message_id, origem FROM client_evaluations WHERE id=%s",
                 (record_id,),
             ).fetchone()
         assert row["email_message_id"] == "msg-id-001"
@@ -676,9 +676,9 @@ class TestAutomatedIngest:
         import main
         with main._db() as conn:
             count = conn.execute(
-                "SELECT COUNT(*) FROM client_evaluations WHERE email_message_id=?",
+                "SELECT COUNT(*) AS n FROM client_evaluations WHERE email_message_id=%s",
                 ("msg-id-idem",),
-            ).fetchone()[0]
+            ).fetchone()["n"]
         assert count == 1
 
     def test_tc49_html_body_is_stripped_and_parsed(

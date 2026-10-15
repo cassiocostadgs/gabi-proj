@@ -213,7 +213,7 @@ or `{ "submitted": false }` when no record exists.
 - **GA Validation domain** — produces the `Person` JSON object (validation snapshot) that the user forwards to this domain at submission time. The rerun and preview operations invoke the same validation engine (`gabi_engine.process` or `process_with_task_data`) on the stored GA file.
 - **Task Data Access domain** — supplies the current Task hours used during rerun and preview reprocessing. The oracle-mode path (`_run_oracle`) or file-mode path (`_run_file`) is selected based on whether Oracle is configured.
 - **Team & Billing domain** — the billing export endpoint (`GET /api/admin/billing/{competencia}/export`) consumes approved submissions and joins `team_members` and `billing_rates` to compute totals. The GA file download endpoint supplies raw GA files for archival alongside the billing XLSX.
-- **SQLite** — all submission state is persisted in the `ga_submissions` table in the local SQLite database. Oracle is not written to; it is read-only.
+- **PostgreSQL** — all submission state is persisted in the `ga_submissions` table in the internal PostgreSQL database. Oracle is not written to; it is read-only.
 - **openpyxl** — used to generate the billing XLSX response from approved submissions.
 - **File System Access API** (browser) — the frontend uses this browser API to allow the admin to save the billing XLSX and raw GA files to a user-chosen local folder. There is no server-side ZIP packaging; file saving is client-orchestrated.
 

@@ -12,7 +12,7 @@ Internal corporate tool that validates whether hours recorded in the GA (Gestão
 
 ### Backend
 - **Python 3.11** — FastAPI + uvicorn
-- **SQLite** (`web/users.db`) — internal data (users, submissions, history)
+- **PostgreSQL** (`DATABASE_URL`) — internal data (users, submissions, history); driver **psycopg 3**
 - **oracledb** — Oracle driver; thick mode required (Oracle 11g has no thin-driver support)
 - **python-calamine** — XLS/XLSX parsing (GA files and Task fallback)
 - **python-jose** + **bcrypt** — JWT authentication and password hashing
@@ -39,7 +39,7 @@ Internal corporate tool that validates whether hours recorded in the GA (Gestão
 web/
   main.py              → HTTP layer (FastAPI, auth, routes) — no business logic
   gabi_engine.py       → pure validation logic (no I/O, no FastAPI)
-  users.db             → SQLite internal database
+  db.py                → PostgreSQL connection factory (`_db()`, `DATABASE_URL`)
   tasks/               → Task.xlsx fallback files uploaded by admin
   core/
     oracle.py          → Oracle thick-mode client initialization
@@ -69,7 +69,7 @@ tests/
 ## Architecture & Layer Invariants
 
 - **`gabi_engine.py`**: pure logic — no I/O, no FastAPI imports, no direct DB calls.
-- **`repositories/`**: the only contact point with external databases (Oracle and SQLite).
+- **`repositories/`**: the only contact point with external databases (Oracle and PostgreSQL).
 - **`main.py` routers**: no business logic — delegate to engine/services only.
 - **Frontend `services/`**: never access the Task DB directly — always via the G.A.B.I. API.
 
@@ -85,7 +85,13 @@ New validation rules must be added as independent functions composed into `valid
 - **Seed**: default admin created from `ADMIN_EMAIL` / `ADMIN_PASSWORD` env vars at startup.
 - **Scope**: employees see only their own data; admins see all.
 - **CORS**: all origins/methods/headers allowed (internal corporate tool).
-- **Runtime env vars**: configured in `web/.env` (gitignored; not committed).
+- **Runtime env vars**: configured in `web/.env` (gitignored; not committed). `DATABASE_URL` is required.
+
+### Database conventions (PostgreSQL)
+- Placeholders are `%s` (psycopg); rows are dicts (`row["col"]`, never `row[0]`).
+- New ids come from `INSERT ... RETURNING id` (there is no `lastrowid`).
+- Flags stay `INTEGER` 0/1 and timestamps are `TIMESTAMP(0)` in UTC, returned as `"YYYY-MM-DD HH:MM:SS"` strings — the API contract inherited from SQLite (see `web/db.py`).
+- Catch `db.IntegrityError` for unique-constraint conflicts.
 
 ---
 
@@ -188,8 +194,13 @@ cd frontend && npm run build
 ruff check web/
 ruff format web/
 
-# Python tests with XML coverage (for Sonar)
+# Python tests with XML coverage (for Sonar) — needs a disposable PostgreSQL database;
+# TEST_DATABASE_URL defaults to postgresql://postgres:postgres@localhost:5432/gabi_test
+# and its `public` schema is dropped before every test
 python -m pytest --cov=web --cov-report=xml
+
+# One-off: copy a legacy SQLite users.db into the PostgreSQL pointed by DATABASE_URL
+python scripts/migrate_sqlite_to_postgres.py web/users.db
 
 # Frontend lint + format check
 cd frontend && npx eslint src/ --max-warnings=0
@@ -233,11 +244,13 @@ Use the `/commit` skill to execute this flow. WIP commits (without push) do not 
 
 ## CI/CD & Deploy
 
+**DB1 deploy portal** (`gabi.apps.db1group.com`): packaged with the root `Dockerfile` and `db1app.json`. `prisma/schema.prisma` is a stub the app never uses — the portal only provisions a managed PostgreSQL (and injects `DATABASE_URL`, via PgBouncer) for stacks it recognizes, and this file is what it recognizes. Do not delete it. Because of PgBouncer, never add session startup options or server-side prepared statements in `web/db.py`.
+
 **Trigger**: push to `main` → lint + tests (Python & frontend) + build → deploy to EC2.
 
 **Deploy steps**: GitHub Actions copies `frontend/dist/` to EC2, pulls `main`, installs Python deps, runs `systemctl restart gabi`, reloads nginx.
 
-**Secrets** (GitHub Actions): `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SID`, `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_TASK_PROJECT`, `MAG_EVAL_API_KEY`, `ANTHROPIC_API_KEY` (dedicated Workspace key under DB1's Anthropic org — never an individual's Pro/Max key; used by the TL Evaluation domain, see `web/core/anthropic_client.py`).
+**Secrets** (GitHub Actions): `DATABASE_URL`, `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SID`, `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_TASK_PROJECT`, `MAG_EVAL_API_KEY`, `ANTHROPIC_API_KEY` (dedicated Workspace key under DB1's Anthropic org — never an individual's Pro/Max key; used by the TL Evaluation domain, see `web/core/anthropic_client.py`).
 
 ---
 
@@ -255,7 +268,7 @@ Use the `/commit` skill to execute this flow. WIP commits (without push) do not 
 - No SQL queries in services — belongs in repositories.
 - No validation logic replicated in the frontend — backend is the source of truth.
 - No `any` in TypeScript — use `unknown` with type guard.
-- Do not commit: `.secret_key`, `users.db`, files in `web/tasks/`, `.env` with secrets, `sonar-project.properties`.
+- Do not commit: `.secret_key`, legacy `users.db`, files in `web/tasks/`, `.env` with secrets, `sonar-project.properties`.
 - Do not skip CI hooks (`--no-verify`).
 - Do not push with a red Sonar Quality Gate.
 

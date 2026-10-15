@@ -243,8 +243,8 @@ Deduplication on the automated path is always silent (no `409`): same messageId 
 | File | Role |
 |---|---|
 | `web/client_evaluation_engine.py` | Pure parser — `parse_evaluation()`, `strip_html()`, `auto_link()` |
-| `web/db.py` | SQLite `_db()` context manager shared across repositories |
-| `web/repositories/client_evaluation_repository.py` | All SQLite reads/writes for this domain |
+| `web/db.py` | PostgreSQL `_db()` connection factory shared across repositories |
+| `web/repositories/client_evaluation_repository.py` | All database reads/writes for this domain |
 | `tests/test_client_evaluation_engine.py` | Unit tests for the pure parser |
 | `tests/test_client_evaluations.py` | Integration tests for all endpoints |
 

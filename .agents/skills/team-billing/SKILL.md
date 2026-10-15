@@ -221,7 +221,7 @@ Formatting applied: Excel table named `TabelaFaturamento` (style `TableStyleMedi
 - `valor_hora` is stored as a REAL (float) and used directly in multiplication; no minimum or maximum is enforced by the backend.
 - `cpf` is stored as a free-text string; the frontend formats it as `000.000.000-00` (masked input) but no server-side format validation is applied.
 - `subcontrato` is a free-text string with no format constraint.
-- `profile` is a free-text string that serves as the primary key of `billing_rates`; case-sensitivity follows SQLite's default (case-sensitive equality).
+- `profile` is a free-text string that serves as the primary key of `billing_rates`; equality is case-sensitive (PostgreSQL TEXT).
 - The `billing_email_tag` is capped at 10 characters by the frontend; no server-side length constraint is enforced.
 - The settings PUT endpoint accepts any key; only `billing_cnpj`, `billing_email_to`, and `billing_email_tag` carry business meaning.
 

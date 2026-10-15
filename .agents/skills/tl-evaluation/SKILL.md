@@ -488,7 +488,7 @@ Admin endpoints (all `AdminUser`-guarded, no TL-ownership check needed since non
 | `web/repositories/tl_evaluation_prompt_repository.py` | Admin-editable prompt sections, section history, and the forbidden-voice-words list; `seed_defaults(conn)` called once from `_init_db()` |
 | `web/tl_evaluation_pdf.py` | PDF generation (WeasyPrint) |
 | `tests/test_tl_evaluation_engine.py` | Unit tests for the pure engine (no network calls), including the byte-identical defaults guarantee |
-| `tests/test_tl_squads.py` | Integration tests for squad/member/evaluation endpoints (FastAPI TestClient, in-memory SQLite) |
+| `tests/test_tl_squads.py` | Integration tests for squad/member/evaluation endpoints (FastAPI TestClient, isolated PostgreSQL schema per test) |
 | `tests/test_tl_evaluation_prompt_admin.py` | Integration tests for all prompt-admin endpoints |
 | `frontend/src/services/tl-evaluation.service.ts` | All API access functions for this domain, including the prompt-admin endpoints |
 | `frontend/src/pages/admin/sections/SquadsSection.tsx` | Admin squad CRUD + TL assignment + read-only member view |
