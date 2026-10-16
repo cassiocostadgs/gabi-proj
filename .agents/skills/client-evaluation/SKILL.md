@@ -51,9 +51,13 @@ rascunho ──► aprovado    (POST /approve; requires user_email != null)
 
 - `rascunho` — editable; visible to admins only.
 - `aprovado` — **immutable in v1**; visible to the professional (`GET /api/my-evaluations`) and in the admin dashboard.
-- `rejeitado` — immutable; never visible to the professional or the dashboard.
+- `rejeitado` — immutable; never visible to the professional or the dashboard. **Can be deleted** (`DELETE /{id}`).
 
 Approved records cannot be patched: `PATCH` on an `aprovado` record returns `409`.
+
+### Deleting a rejected record (correcting a wrong ingest)
+
+A rejected record still counts for deduplication (rules 2 and 3 below match any `status`), so it blocks a new ingest for the same professional/competência. To correct a wrong ingest — e.g. an admin pasted the wrong e-mail — the admin **rejects** it, **deletes** it, and ingests the corrected one. Only `rejeitado` records can be deleted: `rascunho` must be rejected first, and `aprovado` is published to the professional and stays immutable (`409` for both). The status guard is also in the `DELETE ... WHERE status = 'rejeitado'` SQL, so a record approved concurrently is never removed.
 
 ### Approval pre-condition
 
@@ -69,19 +73,17 @@ Approved records cannot be patched: `PATCH` on an `aprovado` record returns `409
 
 3. **By normalized `(nome_extraido, competencia)`** when `user_email` is `null` (unlinked): normalize the incoming name with `norm()`, compare against normalized `nome_extraido` of existing records for the same `competencia` where `user_email IS NULL` → `409` on the manual path; silent skip on the automated path.
 
-### Name-linking adapter (`_email_to_prefix`)
+### Name linking (`auto_link`)
 
-`match_name(full, task_names)` in `gabi_engine.py` expects dot-notation identifiers (e.g., `"pedro.santos"`). Team members are stored with `user_email` like `"pedro.santos@db1.com.br"`.
+`auto_link(nome_extraido, active_members) -> (user_email | None, match_status)` in `web/client_evaluation_engine.py` compares the extracted name against each **active** team member's registered `nome_completo` — not the e-mail prefix, because corporate e-mail formatting is inconsistent (e.g. `"sobrenome.nome"`).
 
-Adapter: extract the prefix before `@` from each active `user_email` → `"pedro.santos"`. Pass the list of prefixes as `task_names`. Map the returned prefix back to the original `user_email`.
-
-Helper: `_email_to_prefix(email: str) -> str = email.split("@")[0]`.  
-Adapter function: `auto_link(nome_extraido, active_emails) -> (user_email | None, match_status)` lives in `web/client_evaluation_engine.py`.
+Names are reduced to token sets (`norm()`, particles such as "de"/"da" dropped). A member matches when either token set is a subset of the other, order-independent — so "Gabriela Almeida" matches "Gabriela Guilherme de Almeida Castro". Members with an empty `nome_completo` never match.
 
 Match outcomes:
-- `match_name` returns a prefix → `match_status = "auto"`, `user_email` = the corresponding email.
-- `match_name` returns `None` → `match_status = "nao_vinculado"`, `user_email = NULL`.
+- exactly one candidate → `match_status = "auto"`, `user_email` = that member.
+- zero or more than one candidate (ambiguous) → `match_status = "nao_vinculado"`, `user_email = NULL`.
 - Admin resolves manually via `PATCH /{id}` with `user_email` → `match_status = "manual"`.
+- `POST /api/admin/client-evaluations/reprocess-unlinked` re-runs `auto_link` for every `nao_vinculado` draft against the current roster (picks up members registered, backfilled or reactivated after ingest).
 
 ### HTML stripping (automated ingest path)
 
@@ -208,6 +210,11 @@ All admin endpoints require `is_admin = true`. Non-admin requests return `403`. 
 
 **Auth**: admin JWT  
 **Response**: `200` + sets `status = "rejeitado"`, `reviewed_by`, `reviewed_at`; `404` not found
+
+### `DELETE /api/admin/client-evaluations/{id}`
+
+**Auth**: admin JWT
+**Response**: `200 {"ok": true}` when the record was `rejeitado` and is deleted; `404` not found; `409` if the record is `rascunho` or `aprovado`
 
 ### `POST /api/integrations/mag-evaluation`
 

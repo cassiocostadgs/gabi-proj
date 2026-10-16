@@ -32,7 +32,6 @@ def client(tmp_path, monkeypatch, _fresh_schema):
     import main
     _truncate_all_tables()
     monkeypatch.setattr(main, "DATABASE_URL", TEST_DATABASE_URL)
-    monkeypatch.setattr(main, "TASKS_DIR", tmp_path / "tasks")
     from fastapi.testclient import TestClient
     with TestClient(main.app) as c:
         yield c

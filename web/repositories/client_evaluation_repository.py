@@ -138,6 +138,18 @@ def update_status(record_id: int, new_status: str, reviewed_by: str, reviewed_at
     return result.rowcount
 
 
+def delete_rejected(record_id: int) -> int:
+    """Delete a rejected record so a corrected evaluation can be ingested for the same
+    professional/competência. The status guard lives in the SQL as well, so a record
+    approved concurrently is never deleted. Returns rowcount."""
+    with _db() as conn:
+        result = conn.execute(
+            "DELETE FROM client_evaluations WHERE id = %s AND status = 'rejeitado'",
+            (record_id,),
+        )
+    return result.rowcount
+
+
 def list_team_members_active() -> list:
     with _db() as conn:
         return conn.execute(

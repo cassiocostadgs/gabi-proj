@@ -51,6 +51,10 @@ export const clientEvaluationService = {
     await api.post(`/api/admin/client-evaluations/${id}/reject`)
   },
 
+  deleteEvaluation: async (id: number): Promise<void> => {
+    await api.delete(`/api/admin/client-evaluations/${id}`)
+  },
+
   reprocessUnlinked: async (): Promise<{ relinked: number }> => {
     const { data } = await api.post<{ ok: boolean; relinked: number }>(
       '/api/admin/client-evaluations/reprocess-unlinked'

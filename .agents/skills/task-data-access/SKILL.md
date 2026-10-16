@@ -107,14 +107,19 @@ This query feeds the self-service task-entries report.
 
 16. Admins can upload one or more Task XLSX files per competência. The most
     recently uploaded file per competência is the one used in file mode.
-17. The uploaded file is stored on disk; the PostgreSQL `task_uploads` table records
-    the metadata (`filename`, `path`, `competencia`, `uploaded_at`,
-    `uploaded_by`).
-18. File-mode validation selects the most recent upload matching the given
-    `competencia`. If no `competencia` is provided, the globally most recent
-    upload is used.
-19. If no matching upload exists or the stored file path no longer exists on
-    disk, validation returns HTTP 422 with an appropriate error message.
+17. The uploaded file content is stored **in the database** (`task_uploads.data`,
+    BYTEA), never on disk: the DB1 deploy portal recreates the container disk on
+    every deploy, which used to silently drop every uploaded Task file. At
+    validation time the bytes are written to a temporary directory (keeping the
+    original filename, since the parser needs a path) and removed afterwards.
+18. File-mode validation selects the most recent upload **with content** matching
+    the given `competencia`. If no `competencia` is provided, the globally most
+    recent one is used.
+19. If no matching upload with content exists, validation returns HTTP 422
+    ("Nenhum relatório Task disponível…"). Legacy rows from before the move into
+    the database (`path` set, `data` NULL) are ignored here and by
+    `/api/task/status` and `/api/task/competencias`; they still appear in the admin
+    list so they can be deleted.
 20. The `parse_task()` parser reads the **"Analítico" sheet** of the XLSX/XLS
     file, starting at row index 10 (the 11th row, skipping headers).
     - Expected columns: `row[0]=responsavel`, `row[1]=date`, `row[2]=area_code`,
@@ -203,7 +208,8 @@ This query feeds the self-service task-entries report.
 |---------------|---------|--------------------------------------------|
 | `id`          | INTEGER | PK, autoincrement                          |
 | `filename`    | TEXT    | Original filename                          |
-| `path`        | TEXT    | Absolute path on server disk               |
+| `data`        | BYTEA   | File content; NULL only on legacy rows     |
+| `path`        | TEXT    | Legacy only (pre-database disk path); NULL for new uploads |
 | `competencia` | TEXT    | Format: `YYYY-MM` (default `''`)           |
 | `uploaded_at` | TIMESTAMP(0) | UTC; returned as "YYYY-MM-DD HH:MM:SS" |
 | `uploaded_by` | TEXT    | Email of the uploading admin               |
@@ -275,8 +281,8 @@ This query feeds the self-service task-entries report.
 33. A 503 is returned when the Oracle query cannot be completed (connection error,
     timeout, or other exception). The error detail includes the original exception
     message.
-34. Task file deletion is non-atomic: the record is deleted from the database first;
-    file removal failure is silently suppressed.
+34. Task file deletion removes the database row (content included) — there is no
+    file on disk to clean up.
 35. `GET /api/task/my-entries` and the admin equivalents always invoke Oracle
     directly (no file fallback). The file fallback is used only within
     `POST /api/validate` when explicitly requested or when Oracle is not

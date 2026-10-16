@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsRight,
+  Trash2,
 } from 'lucide-react'
 import { Spinner } from '../../../components/Spinner'
 import { SelectField } from '../../../components/ui/select'
@@ -74,6 +75,53 @@ function ScorePill({ score }: Readonly<{ score: number }>) {
   )
 }
 
+function RejectedFooter({
+  onConfirmDelete,
+  isDeletePending,
+}: Readonly<{ onConfirmDelete: () => void; isDeletePending: boolean }>) {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  if (!confirmOpen) {
+    return (
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-xs text-slate-500">
+          Registro rejeitado. Exclua para lançar a avaliação corrigida deste profissional.
+        </p>
+        <button
+          onClick={() => setConfirmOpen(true)}
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 transition-colors"
+        >
+          <Trash2 size={13} /> Excluir
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <p className="text-xs text-amber-300">
+        Excluir definitivamente este registro? Esta ação é irreversível.
+      </p>
+      <div className="flex gap-2">
+        <button
+          onClick={() => setConfirmOpen(false)}
+          className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+        >
+          Cancelar
+        </button>
+        <button
+          onClick={onConfirmDelete}
+          disabled={isDeletePending}
+          className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white transition-colors"
+        >
+          {isDeletePending ? <Spinner size="sm" /> : <Trash2 size={13} />}
+          Confirmar exclusão
+        </button>
+      </div>
+    </div>
+  )
+}
+
 interface ReviewDrawerFooterProps {
   isRejeitado: boolean
   isAprovado: boolean
@@ -87,6 +135,8 @@ interface ReviewDrawerFooterProps {
   isSavePending: boolean
   onApprove: () => void
   isApprovePending: boolean
+  onConfirmDelete: () => void
+  isDeletePending: boolean
 }
 
 function ReviewDrawerFooter({
@@ -102,11 +152,11 @@ function ReviewDrawerFooter({
   isSavePending,
   onApprove,
   isApprovePending,
+  onConfirmDelete,
+  isDeletePending,
 }: Readonly<ReviewDrawerFooterProps>) {
   if (isRejeitado) {
-    return (
-      <p className="text-xs text-slate-500">Registro rejeitado — sem novas ações disponíveis.</p>
-    )
+    return <RejectedFooter onConfirmDelete={onConfirmDelete} isDeletePending={isDeletePending} />
   }
 
   if (rejectConfirmOpen) {
@@ -268,6 +318,14 @@ function ReviewDrawer({
     mutationFn: () => clientEvaluationService.rejectEvaluation(evaluationId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['client-evaluation', evaluationId] })
+      onActionDone()
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: () => clientEvaluationService.deleteEvaluation(evaluationId),
+    onSuccess: () => {
+      qc.removeQueries({ queryKey: ['client-evaluation', evaluationId] })
       onActionDone()
     },
   })
@@ -551,6 +609,8 @@ function ReviewDrawer({
               isSavePending={saveMutation.isPending}
               onApprove={() => approveMutation.mutate()}
               isApprovePending={approveMutation.isPending}
+              onConfirmDelete={() => deleteMutation.mutate()}
+              isDeletePending={deleteMutation.isPending}
             />
           </div>
         )}

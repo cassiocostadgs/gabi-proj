@@ -40,7 +40,6 @@ web/
   main.py              → HTTP layer (FastAPI, auth, routes) — no business logic
   gabi_engine.py       → pure validation logic (no I/O, no FastAPI)
   db.py                → PostgreSQL connection factory (`_db()`, `DATABASE_URL`)
-  tasks/               → Task.xlsx fallback files uploaded by admin
   core/
     oracle.py          → Oracle thick-mode client initialization
   repositories/
@@ -268,7 +267,7 @@ Use the `/commit` skill to execute this flow. WIP commits (without push) do not 
 - No SQL queries in services — belongs in repositories.
 - No validation logic replicated in the frontend — backend is the source of truth.
 - No `any` in TypeScript — use `unknown` with type guard.
-- Do not commit: `.secret_key`, legacy `users.db`, files in `web/tasks/`, `.env` with secrets, `sonar-project.properties`.
+- Do not commit: `.secret_key`, legacy `users.db`, `.env` with secrets, `sonar-project.properties`.
 - Do not skip CI hooks (`--no-verify`).
 - Do not push with a red Sonar Quality Gate.
 

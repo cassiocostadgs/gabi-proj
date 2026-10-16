@@ -1,5 +1,6 @@
 from datetime import date
 from io import BytesIO
+from pathlib import Path
 from unittest.mock import patch
 
 import openpyxl
@@ -8,6 +9,17 @@ import openpyxl
 def _xlsx_cell_values(content: bytes) -> set:
     ws = openpyxl.load_workbook(BytesIO(content)).active
     return {cell for row in ws.iter_rows(values_only=True) for cell in row if cell is not None}
+
+
+def _insert_legacy_task_upload(path: str, competencia: str) -> None:
+    """A Task upload as stored before files moved into the database: path only, no content."""
+    import main
+    with main._db() as conn:
+        conn.execute(
+            "INSERT INTO task_uploads (filename, path, competencia, uploaded_by)"
+            " VALUES (%s, %s, %s, %s)",
+            ("task.xlsx", path, competencia, "test@test.com"),
+        )
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -203,6 +215,11 @@ class TestTaskStatus:
         assert data["available"] is True
         assert data["competencia"] == "2025-01"
 
+    def test_legacy_upload_without_content_is_not_available(self, client, tmp_path):
+        _insert_legacy_task_upload(str(tmp_path / "task.xlsx"), "2025-01")
+        assert client.get("/api/task/status").json()["available"] is False
+        assert client.get("/api/task/competencias").json()["competencias"] == []
+
 
 # ── Oracle status (public) ────────────────────────────────────────────────────
 
@@ -342,20 +359,58 @@ class TestValidateEndpoint:
             )
         assert resp.status_code == 422
 
-    def test_missing_file_on_disk_returns_422(self, client, auth_headers, tmp_path):
-        import main
-        fake_path = str(tmp_path / "nonexistent.xlsx")
-        with main._db() as conn:
-            conn.execute(
-                "INSERT INTO task_uploads (filename, path, competencia, uploaded_by) VALUES (%s,%s,%s,%s)",
-                ("task.xlsx", fake_path, "2025-01", "test@test.com"),
-            )
+    def test_legacy_upload_without_content_is_not_used(self, client, auth_headers, tmp_path):
+        # Uploads from before the move into the database only kept a disk path.
+        _insert_legacy_task_upload(str(tmp_path / "task.xlsx"), "2025-01")
         with patch("main.is_oracle_configured", return_value=False):
             resp = client.post(
                 "/api/validate", files=self._GA_FILE, data=self._FILE_DATA, headers=auth_headers
             )
         assert resp.status_code == 422
-        assert "não encontrado" in resp.json()["detail"]
+        assert "Nenhum relatório Task" in resp.json()["detail"]
+
+    def test_engine_receives_the_stored_task_file(self, client, auth_headers):
+        client.post(
+            "/api/admin/task",
+            files={"task": ("Task_Jan.xlsx", b"task-bytes", "application/octet-stream")},
+            data={"competencia": "2025-01"},
+            headers=auth_headers,
+        )
+        received = {}
+
+        def fake_process(task_path, ga_paths):
+            received["name"] = Path(task_path).name
+            received["content"] = Path(task_path).read_bytes()
+            return [{"name": "X"}], []
+
+        with patch("main.is_oracle_configured", return_value=False), \
+             patch("gabi_engine.process", side_effect=fake_process):
+            resp = client.post(
+                "/api/validate", files=self._GA_FILE, data=self._FILE_DATA, headers=auth_headers
+            )
+        assert resp.status_code == 200
+        assert received == {"name": "Task_Jan.xlsx", "content": b"task-bytes"}
+
+    def test_latest_upload_of_the_competencia_wins(self, client, auth_headers):
+        for content in (b"old", b"new"):
+            client.post(
+                "/api/admin/task",
+                files={"task": ("Task.xlsx", content, "application/octet-stream")},
+                data={"competencia": "2025-01"},
+                headers=auth_headers,
+            )
+        received = []
+
+        def fake_process(task_path, ga_paths):
+            received.append(Path(task_path).read_bytes())
+            return [{"name": "X"}], []
+
+        with patch("main.is_oracle_configured", return_value=False), \
+             patch("gabi_engine.process", side_effect=fake_process):
+            client.post(
+                "/api/validate", files=self._GA_FILE, data=self._FILE_DATA, headers=auth_headers
+            )
+        assert received == [b"new"]
 
     def test_validate_success_file_mode(self, client, auth_headers):
         client.post(

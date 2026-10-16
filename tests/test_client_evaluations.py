@@ -389,6 +389,61 @@ class TestApproveAndReject:
         assert dash_resp.json()["data"] == []
 
 
+# ── Delete a rejected record to re-ingest a corrected evaluation ─────────────
+
+def _delete(client, headers, record_id):
+    return client.delete(f"/api/admin/client-evaluations/{record_id}", headers=headers)
+
+
+class TestDeleteRejected:
+    def test_rejected_record_is_deleted(self, client, admin_h, with_team_members):
+        record_id = _ingest(client, admin_h, BODY_A).json()["id"]
+        _reject(client, admin_h, record_id)
+        assert _delete(client, admin_h, record_id).status_code == 200
+        resp = client.get(f"/api/admin/client-evaluations/{record_id}", headers=admin_h)
+        assert resp.status_code == 404
+
+    def test_corrected_evaluation_can_be_ingested_after_delete(
+        self, client, admin_h, with_team_members
+    ):
+        record_id = _ingest(client, admin_h, BODY_A).json()["id"]
+        _reject(client, admin_h, record_id)
+        # The rejected record still blocks the same professional/competência...
+        assert _ingest(client, admin_h, BODY_A).status_code == 409
+        _delete(client, admin_h, record_id)
+        # ...until it is deleted.
+        resp = _ingest(client, admin_h, BODY_A)
+        assert resp.status_code == 201
+        assert resp.json()["status"] == "rascunho"
+
+    def test_unlinked_rejected_record_unblocks_reingest(self, client, admin_h):
+        record_id = _ingest(client, admin_h, BODY_UNKNOWN).json()["id"]
+        _reject(client, admin_h, record_id)
+        _delete(client, admin_h, record_id)
+        assert _ingest(client, admin_h, BODY_UNKNOWN).status_code == 201
+
+    def test_rascunho_cannot_be_deleted(self, client, admin_h, with_team_members):
+        record_id = _ingest(client, admin_h, BODY_A).json()["id"]
+        assert _delete(client, admin_h, record_id).status_code == 409
+        resp = client.get(f"/api/admin/client-evaluations/{record_id}", headers=admin_h)
+        assert resp.status_code == 200
+
+    def test_approved_cannot_be_deleted(self, client, admin_h, with_team_members):
+        record_id = _ingest(client, admin_h, BODY_A).json()["id"]
+        _approve(client, admin_h, record_id)
+        assert _delete(client, admin_h, record_id).status_code == 409
+        data = client.get(f"/api/admin/client-evaluations/{record_id}", headers=admin_h).json()
+        assert data["status"] == "aprovado"
+
+    def test_missing_record_returns_404(self, client, admin_h):
+        assert _delete(client, admin_h, 999_999).status_code == 404
+
+    def test_non_admin_returns_403(self, client, admin_h, prof_h):
+        record_id = _ingest(client, admin_h, BODY_A).json()["id"]
+        _reject(client, admin_h, record_id)
+        assert _delete(client, prof_h, record_id).status_code == 403
+
+
 # ── Story 5 — Unlinked professional (TC-25 to TC-27) ─────────────────────────
 
 class TestUnlinkedProfessional:
