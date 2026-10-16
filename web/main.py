@@ -8,6 +8,7 @@ import os
 import re as _re
 import secrets
 import tempfile
+import threading
 from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
@@ -42,6 +43,7 @@ import repositories.tl_evaluation_repository as tl_evaluation_repository  # noqa
 import repositories.tl_evaluation_role_repository as tl_evaluation_role_repository  # noqa: E402
 import tl_evaluation_engine  # noqa: E402
 import tl_evaluation_pdf  # noqa: E402
+from core.oracle import init_error as oracle_init_error  # noqa: E402
 from core.oracle import is_oracle_configured, try_init_oracle_client  # noqa: E402
 from db import IntegrityError, _db  # noqa: E402
 
@@ -2727,6 +2729,22 @@ async def health() -> dict:
 def startup() -> None:
     _init_db()
     try_init_oracle_client()
+    threading.Thread(target=_log_oracle_diagnostics, daemon=True).start()
+
+
+def _log_oracle_diagnostics() -> None:  # pragma: no cover — needs a real Oracle/Instant Client
+    """Writes to the container log why the Task DB is (un)available. Runs off the startup path
+    because the network probe can take seconds and must not delay the healthcheck."""
+    if not is_oracle_configured():
+        print("[Oracle] ORACLE_INSTANT_CLIENT não definido — Task DB desligado", flush=True)
+        return
+    if not try_init_oracle_client():
+        print(f"[Oracle] cliente Oracle não carregou: {oracle_init_error()}", flush=True)
+        return
+    from repositories.task_repository import diagnose
+
+    for finding in diagnose():
+        print(f"[Oracle] {finding}", flush=True)
 
 
 if STATIC_DIR.exists():  # pragma: no cover

@@ -90,6 +90,54 @@ def ping() -> bool:
         return False
 
 
+_NETWORK_PROBE_SECONDS = 3
+
+
+def diagnose() -> list[str]:
+    """Why the Task DB is (un)available, for the startup log — ping() alone only says False.
+    Never includes the password: config is reported by variable name, errors by first line."""
+    missing = [
+        name
+        for name, value in (
+            ("ORACLE_HOST", _HOST),
+            ("ORACLE_USER", _USER),
+            ("ORACLE_PASSWORD", _PASSWORD),
+        )
+        if not value
+    ]
+    if missing:
+        return [f"configuração incompleta: {', '.join(missing)} vazio(s)"]
+    network = _probe_network()
+    if network is not None:
+        return [f"rede: {_HOST}:{_PORT} INALCANÇÁVEL ({network})"]
+    return [f"rede: {_HOST}:{_PORT} alcançável", _probe_login()]
+
+
+def _probe_network() -> str | None:
+    """None when the host accepts a TCP connection, otherwise the error."""
+    import socket
+
+    try:
+        with socket.create_connection((_HOST, _PORT), timeout=_NETWORK_PROBE_SECONDS):
+            return None
+    except OSError as exc:
+        return str(exc)
+
+
+def _probe_login() -> str:
+    try:
+        import oracledb
+
+        with (
+            oracledb.connect(user=_USER, password=_PASSWORD, dsn=_PING_DSN) as conn,
+            conn.cursor() as cur,
+        ):
+            cur.execute("SELECT 1 FROM DUAL")
+        return "login: OK"
+    except Exception as exc:
+        return f"login: FALHOU ({str(exc).splitlines()[0]})"
+
+
 def responsavel_from_email(email: str) -> str:
     """pedro.santos@db1.com.br → PEDRO.SANTOS"""
     return email.split("@")[0].upper()
